@@ -50,11 +50,11 @@ def conda_build_purge() -> None:
 
 def build(
     recipe: str,
-    pkg_paths: List[str] = None,
+    pkg_paths: List[str] | None = None,
     testonly: bool = False,
     mulled_test: bool = True,
-    channels: List[str] = None,
-    docker_builder: docker_utils.RecipeBuilder = None,
+    channels: List[str] | None = None,
+    docker_builder: docker_utils.RecipeBuilder | None = None,
     raise_error: bool = False,
     linter=None,
     mulled_conda_image: str = pkg_test.MULLED_CONDA_IMAGE,
@@ -166,17 +166,33 @@ def build(
                     )
                     return BuildResult(False, None)
         else:
-            conda_build_cmd = [utils.bin_for("conda-build")]
-            # - Temporarily reset os.environ to avoid leaking env vars
-            # - Also pass filtered env to run()
-            # - Point conda-build to meta.yaml, to avoid building subdirs
-            with utils.sandboxed_env(whitelisted_env):
-                cmd = conda_build_cmd + args
-                for config_file in utils.get_conda_build_config_files():
-                    cmd += [config_file.arg, config_file.path]
-                cmd += [os.path.join(recipe, "meta.yaml")]
-                with utils.Progress():
-                    utils.run(cmd, mask=False, live=live_logs)
+            recipe_meta_file = os.path.join(recipe, "meta.yaml")
+            recipe_file = os.path.join(recipe, "recipe.yaml")
+            if os.path.exists(recipe_meta_file):
+                conda_build_cmd = [utils.bin_for("conda-build")]
+
+                # - Temporarily reset os.environ to avoid leaking env vars
+                # - Also pass filtered env to run()
+                # - Point conda-build to meta.yaml, to avoid building subdirs
+                with utils.sandboxed_env(whitelisted_env):
+                    cmd = conda_build_cmd + args
+                    for config_file in utils.get_conda_build_config_files():
+                        cmd += [config_file.arg, config_file.path]
+                    cmd += [recipe_meta_file]
+                    with utils.Progress():
+                        utils.run(cmd, mask=False, live=live_logs)
+            elif os.path.exists(recipe_file):
+                rattler_build_cmd = [utils.bin_for("rattler-build"), "build"]
+
+                # - Temporarily reset os.environ to avoid leaking env vars
+                # - Also pass filtered env to run()
+                # - Point conda-build to meta.yaml, to avoid building subdirs
+                with utils.sandboxed_env(whitelisted_env):
+                    cmd = rattler_build_cmd + args
+                    # TODO: is there an equivalent to conda-build config files for rattler?
+                    cmd += ["--recipe", recipe_file]
+                    with utils.Progress():
+                        utils.run(cmd, mask=False, live=live_logs)
 
         logger.info(
             "BUILD SUCCESS %s", " ".join(os.path.basename(p) for p in pkg_paths)
