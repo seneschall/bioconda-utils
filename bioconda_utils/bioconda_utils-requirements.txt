@@ -14,7 +14,7 @@ conda-build=26.3.*
 conda-index=0.10.*
 conda-package-streaming=0.12.*
 mamba=2.5.*
-rattler-build>=0.55.0
+rattler-build=0.63.*
 
 argh=0.31.*                   # CLI
 colorlog=6.*                  # Logging

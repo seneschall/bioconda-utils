@@ -183,6 +183,7 @@ def build(
                         utils.run(cmd, mask=False, live=live_logs)
             elif os.path.exists(recipe_file):
                 rattler_build_cmd = [utils.bin_for("rattler-build"), "build"]
+                # TODO rattler variant files, analogous to conda config_file
 
                 # - Temporarily reset os.environ to avoid leaking env vars
                 # - Also pass filtered env to run()
