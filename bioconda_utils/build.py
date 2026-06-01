@@ -184,15 +184,22 @@ def build(
                         utils.run(cmd, mask=False, live=live_logs)
             elif os.path.exists(recipe_file):
                 rattler_build_cmd = [utils.bin_for("rattler-build"), "build"]
-                # TODO rattler variant files, analogous to conda config_file
 
                 # - Temporarily reset os.environ to avoid leaking env vars
                 # - Also pass filtered env to run()
                 # - Point conda-build to meta.yaml, to avoid building subdirs
                 with utils.sandboxed_env(whitelisted_env):
                     cmd = rattler_build_cmd + args
-                    # TODO: is there an equivalent to conda-build config files for rattler?
+                    # rattler variant files, analogous to conda config_file
+                    # TODO: Should we also accept variant files from other locations?
+                    # Like from the recipe?
+                    variant_path = os.path.join(
+                        os.path.dirname(__file__), "bioconda_utils-variants.yaml"
+                    )
+                    cmd += ["--variant-config", variant_path]
+
                     cmd += ["--recipe", recipe_file]
+
                     with utils.Progress():
                         utils.run(cmd, mask=False, live=live_logs)
 
