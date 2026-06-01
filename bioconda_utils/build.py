@@ -168,6 +168,7 @@ def build(
         else:
             recipe_meta_file = os.path.join(recipe, "meta.yaml")
             recipe_file = os.path.join(recipe, "recipe.yaml")
+            local_variants_file = os.path.join(recipe, "variants.yaml")
             if os.path.exists(recipe_meta_file):
                 conda_build_cmd = [utils.bin_for("conda-build")]
 
@@ -176,7 +177,7 @@ def build(
                 # - Point conda-build to meta.yaml, to avoid building subdirs
                 with utils.sandboxed_env(whitelisted_env):
                     cmd = conda_build_cmd + args
-                    for config_file in utils.get_conda_build_config_files():
+                    for config_file in utils.get_conda_build_config_files(): # TODO: pass rattler or conda build as parameter
                         cmd += [config_file.arg, config_file.path]
                     cmd += [recipe_meta_file]
                     with utils.Progress():
