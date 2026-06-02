@@ -8,6 +8,7 @@ import itertools
 import logging
 import os
 
+from threading import local
 from typing import List, Optional
 from bioconda_utils.skiplist import Skiplist
 from bioconda_utils.build_failure import BuildFailureRecord
@@ -196,6 +197,7 @@ def build(
                     variant_path = os.path.join(
                         os.path.dirname(__file__), "bioconda_utils-variants.yaml"
                     )
+                    cmd += ["--variant-config", local_variants_file]
                     cmd += ["--variant-config", variant_path]
 
                     cmd += ["--recipe", recipe_file]
