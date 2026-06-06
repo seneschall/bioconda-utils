@@ -16,6 +16,7 @@ from bioconda_utils.build_failure import BuildFailureRecord
 from conda.exports import UnsatisfiableError
 from conda_build.exceptions import DependencyNeedsBuildingError
 import networkx as nx
+import rattler_build as rb
 
 from . import utils
 from . import docker_utils
@@ -178,7 +179,9 @@ def build(
                 # - Point conda-build to meta.yaml, to avoid building subdirs
                 with utils.sandboxed_env(whitelisted_env):
                     cmd = conda_build_cmd + args
-                    for config_file in utils.get_conda_build_config_files(): # TODO: pass rattler or conda build as parameter
+                    for config_file in (
+                        utils.get_conda_build_config_files()
+                    ):  # TODO: pass rattler or conda build as parameter
                         cmd += [config_file.arg, config_file.path]
                     cmd += [recipe_meta_file]
                     with utils.Progress():
