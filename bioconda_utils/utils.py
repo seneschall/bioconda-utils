@@ -22,12 +22,22 @@ import warnings
 import psutil
 
 from threading import Event, Thread
-from pathlib import PurePath
+from pathlib import PurePath, Path
 from collections import Counter, defaultdict, namedtuple, deque
 from collections.abc import Iterable
 from itertools import product, chain, groupby, zip_longest
 from functools import partial
-from typing import Sequence, Collection, List, Dict, Any, Union
+from typing import (
+    Iterator,
+    NamedTuple,
+    Sequence,
+    Collection,
+    List,
+    Dict,
+    Any,
+    Union,
+    Literal,
+)
 from multiprocessing import Pool
 from multiprocessing.pool import ThreadPool
 
@@ -900,7 +910,12 @@ def format_link(uri, fmt: str, prefix: str = "", label: str = ""):
         raise ValueError(f"Invalid link format: {fmt}")
 
 
-def get_recipes(recipe_folder, package="*", exclude=None):
+class Recipe(NamedTuple):
+    type: Literal["conda_build", "rattler", "none"]
+    path: str  # TODO: maybe change this to a Path?
+
+
+def get_recipes(recipe_folder, package="*", exclude=None) -> Iterator[Recipe]:
     """
     Generator of recipes.
 
@@ -924,26 +939,34 @@ def get_recipes(recipe_folder, package="*", exclude=None):
         logger.debug("get_recipes(%s, package='%s'): %s", recipe_folder, package, p)
         path = os.path.join(recipe_folder, p)
         for new_dir in glob.glob(path):
-            meta_yaml_found_or_excluded = False
+            meta_yaml_found_or_excluded = False  # for conda_build
+            recipe_yaml_found_or_excluded = False  # for rattler_build
             for dir_path, dir_names, file_names in os.walk(new_dir):
                 if any(
                     fnmatch.fnmatch(dir_path[len(recipe_folder) :], pat)
                     for pat in exclude
                 ):
                     meta_yaml_found_or_excluded = True
+                    recipe_yaml_found_or_excluded = True
                     continue
                 if "meta.yaml" in file_names:
                     meta_yaml_found_or_excluded = True
-                    yield dir_path
-            if not meta_yaml_found_or_excluded and os.path.isdir(new_dir):
+                    yield Recipe(type="conda_build", path=dir_path)
+                if "recipe.yaml" in file_names:
+                    recipe_yaml_found_or_excluded = True
+                    yield Recipe(type="rattler", path=dir_path)
+            if not (
+                meta_yaml_found_or_excluded or recipe_yaml_found_or_excluded
+            ) and os.path.isdir(new_dir):
                 logger.warn(
-                    "No meta.yaml found in %s."
+                    "No meta.yaml or recipe.yaml found in %s."
                     " If you want to ignore this directory, add it to the blacklist.",
                     new_dir,
                 )
-                yield new_dir
+                yield Recipe(type="none", path=new_dir)
 
 
+# TODO: update to work with rattler
 def get_latest_recipes(recipe_folder, config, package="*"):
     """
     Generator of recipes.

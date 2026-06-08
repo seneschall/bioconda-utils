@@ -378,6 +378,19 @@ def do_not_consider_for_additional_platform(
     return False
 
 
+def build_rattler_recipes(
+    recipe_folder: str,
+    config_path: str,
+    recipes: list[str],
+    testonly: bool,
+    check_channels: list[str],
+) -> bool:
+    # TODO: implement
+    for recipe in recipes:
+        pass
+    return False
+
+
 def build_recipes(
     recipe_folder: str,
     config_path: str,
@@ -403,7 +416,7 @@ def build_recipes(
     subdag_depth: int = None,
     presolved_mulled_test: bool = True,
     fast_resolve: bool = True,
-):
+) -> bool:
     """
     Build one or many bioconda packages.
 

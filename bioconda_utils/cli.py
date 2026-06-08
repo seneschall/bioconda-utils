@@ -23,7 +23,7 @@ import logging
 from collections import defaultdict, Counter
 from functools import partial
 import inspect
-from typing import List, Tuple
+from typing import List, NamedTuple, Tuple
 
 import conda
 import argh
@@ -34,7 +34,7 @@ import pandas
 
 from . import __version__ as VERSION
 from . import utils
-from .build import build_recipes
+from .build import build_recipes, build_rattler_recipes, conda_build_purge
 from . import docker_utils
 from . import lint
 from . import bioconductor_skeleton as _bioconductor_skeleton
@@ -192,23 +192,47 @@ def get_recipes_to_build(git_range: Tuple[str], recipe_folder: str) -> List[str]
     return repo.get_recipes_to_build(ref, other)
 
 
+class RecipeLists(NamedTuple):
+    conda_build_recipes: list[str]
+    rattler_build_recipes: list[str]
+
+
 def get_recipes(
-    config, recipe_folder, packages, git_range, include_blacklisted=False
-) -> List[str]:
-    """Gets list of paths to recipe folders to be built
+    config, recipe_folder: str, packages, git_range, include_blacklisted: bool = False
+) -> RecipeLists:
+    """Gets list of paths to recipe folders to be built,
+    separated into conda build recipes and rattler build recipes
 
     Considers all recipes matching globs in packages, constrains to
     recipes modified or unblacklisted in the git_range if given, then
     removes blacklisted recipes (unless include_blacklisted=True).
-
+    For now, this is only done for the conda build recipes, the
+    rattler build recipes aren't being filtered.
     """
-    recipes = list(utils.get_recipes(recipe_folder, packages))
+    recipes: list[utils.Recipe] = list(utils.get_recipes(recipe_folder, packages))
+    conda_build_recipes: list[str] = []
+    rattler_build_recipes: list[str] = []
+
+    for recipe in recipes:
+        # skipping directories with no meta.yaml or recipe.yaml
+        if recipe.type == "conda_build":
+            conda_build_recipes.append(recipe.path)
+        elif recipe.type == "rattler":
+            rattler_build_recipes.append(recipe.path)
+
     logger.info(
-        "Considering total of %s recipes%s.",
-        len(recipes),
-        utils.ellipsize_recipes(recipes, recipe_folder),
+        "Considering total of %s conda build recipes%s.",
+        len(conda_build_recipes),
+        utils.ellipsize_recipes(conda_build_recipes, recipe_folder),
     )
 
+    logger.info(
+        "Considering total of %s rattler build recipes%s.",
+        len(recipes),
+        utils.ellipsize_recipes(rattler_build_recipes, recipe_folder),
+    )
+
+    # TODO: this has not been updated for rattler build
     if git_range:
         changed_recipes = get_recipes_to_build(git_range, recipe_folder)
         logger.info(
@@ -216,27 +240,37 @@ def get_recipes(
             len(changed_recipes),
             utils.ellipsize_recipes(changed_recipes, recipe_folder),
         )
-        recipes = [recipe for recipe in recipes if recipe in set(changed_recipes)]
+        conda_build_recipes = [
+            recipe for recipe in conda_build_recipes if recipe in set(changed_recipes)
+        ]
         if len(recipes) != len(changed_recipes):
             logger.info(
                 "Overlap was %s recipes%s.",
                 len(recipes),
-                utils.ellipsize_recipes(recipes, recipe_folder),
+                utils.ellipsize_recipes(conda_build_recipes, recipe_folder),
             )
 
+    # TODO: this has not been updated for rattler build
     if not include_blacklisted:
         skiplist = Skiplist(config, recipe_folder)
-        all_len = len(recipes)
-        recipes = [recipe for recipe in recipes if not skiplist.is_skiplisted(recipe)]
+        all_len = len(conda_build_recipes)
+        conda_build_recipes = [
+            recipe
+            for recipe in conda_build_recipes
+            if not skiplist.is_skiplisted(recipe)
+        ]
         if all_len > len(recipes):
             logger.info(f"Ignoring {all_len - len(recipes)} skiplisted recipes.")
 
     logger.info(
-        "Processing %s recipes%s.",
-        len(recipes),
-        utils.ellipsize_recipes(recipes, recipe_folder),
+        "Processing %s conda build recipes%s.",
+        len(conda_build_recipes),
+        utils.ellipsize_recipes(conda_build_recipes, recipe_folder),
     )
-    return recipes
+    return RecipeLists(
+        conda_build_recipes=conda_build_recipes,
+        rattler_build_recipes=rattler_build_recipes,
+    )
 
 
 # NOTE:
@@ -457,9 +491,11 @@ def do_lint(
     if cache is not None:
         utils.RepoData().set_cache(cache)
 
-    recipes = get_recipes(
+    # linting is not implemented for rattler build recipes at the moment
+    recipes: list[str] = get_recipes(
         config, recipe_folder, packages, git_range, include_blacklisted=True
-    )
+    ).conda_build_recipes
+
     linter = lint.Linter(config, recipe_folder, exclude)
     result = linter.lint(recipes, fix=try_fix)
     messages = linter.get_messages()
@@ -655,7 +691,7 @@ def build(
     keep_image=False,
     lint=False,
     lint_exclude=None,
-    check_channels=None,
+    check_channels: list[str] | None = None,
     n_workers=1,
     worker_offset=0,
     keep_old_work=False,
@@ -676,7 +712,9 @@ def build(
         for cmd in setup:
             utils.run(shlex.split(cmd), mask=False)
 
-    recipes = get_recipes(cfg, recipe_folder, packages, git_range)
+    conda_build_recipes, rattler_build_recipes = get_recipes(
+        cfg, recipe_folder, packages, git_range
+    )
 
     if docker:
         if build_script_template is not None:
@@ -717,10 +755,10 @@ def build(
 
     label = os.getenv("BIOCONDA_LABEL", None) or None
 
-    success = build_recipes(
+    success_conda: bool = build_recipes(
         recipe_folder,
         config,
-        recipes,
+        conda_build_recipes,
         testonly=testonly,
         force=force,
         mulled_test=mulled_test,
@@ -743,7 +781,12 @@ def build(
         presolved_mulled_test=not no_presolved_mulled_test,
         fast_resolve=not no_fast_resolve,
     )
-    exit(0 if success else 1)
+
+    success_rattler: bool = build_rattler_recipes(
+        recipe_folder, config, rattler_build_recipes, testonly, check_channels
+    )
+
+    exit(0 if success_conda and success_rattler else 1)
 
 
 @recipe_folder_and_config()
