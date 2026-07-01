@@ -162,14 +162,16 @@ class Recipe:
         "cdt": lambda x: x,
     }
 
-    def __init__(self, recipe_dir, recipe_folder):
-        if not recipe_dir.startswith(recipe_folder):
-            raise RuntimeError(f"'{recipe_dir}' not inside '{recipe_folder}'")
+    def __init__(self, recipe_dir: Path, recipe_folder: Path):
+        if not recipe_dir.is_relative_to(recipe_folder):
+            raise RuntimeError(
+                f"'{recipe_dir.as_posix()}' not inside '{recipe_folder.as_posix()}'"
+            )
 
         #: path to folder containing recipes
-        self.basedir = recipe_folder
+        self.basedir: Path = recipe_folder
         #: relative path to recipe dir from folder containing recipes
-        self.reldir = recipe_dir[len(recipe_folder) :].strip("/")
+        self.reldir: Path = recipe_dir.relative_to(recipe_folder)
 
         # Filled in by render()
         #: Parsed recipe YAML
@@ -195,25 +197,25 @@ class Recipe:
         self._conda_tempdir = None
 
     @property
-    def path(self):
+    def path(self) -> Path:
         """Full path to ``meta.yaml``"""
-        return os.path.join(self.basedir, self.reldir, "meta.yaml")
+        return self.basedir / self.reldir / "meta.yaml"
 
     @property
-    def relpath(self):
+    def relpath(self) -> Path:
         """Relative path to ``meta.yaml`` (from ``basedir``)"""
-        return os.path.join(self.reldir, "meta.yaml")
+        return self.reldir / "meta.yaml"
 
     @property
-    def dir(self):
+    def dir(self) -> Path:
         """Path to recipe folder"""
-        return os.path.join(self.basedir, self.reldir)
+        return self.basedir / self.reldir
 
     def __str__(self) -> str:
-        return self.reldir
+        return self.reldir.as_posix()
 
     def __repr__(self) -> str:
-        return f'{self.__class__.__name__} "{self.reldir}"'
+        return f'{self.__class__.__name__} "{self.reldir.as_posix}"'
 
     def load_from_string(self, data) -> Recipe:
         """Load and `render` recipe contents from disk"""

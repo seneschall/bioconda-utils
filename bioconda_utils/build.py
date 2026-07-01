@@ -2,6 +2,7 @@
 Package Builder
 """
 
+from pathlib import Path
 import subprocess as sp
 from collections import defaultdict
 import itertools
@@ -376,9 +377,9 @@ def do_not_consider_for_additional_platform(
 
 
 def build_recipes(
-    recipe_folder: str,
+    recipe_folder: Path,
     config_path: str,
-    recipes: list[str],
+    recipes: list[Path],
     mulled_test: bool = True,
     testonly: bool = False,
     force: bool = False,
@@ -437,6 +438,7 @@ def build_recipes(
         logger.info("Nothing to be done.")
         return True
 
+    # TODO: reimplement this
     config = utils.load_config(config_path)
     blacklist = Skiplist(config, recipe_folder)
 
@@ -460,6 +462,7 @@ def build_recipes(
 
     failed = []
 
+    # TODO: reimplement this
     dag, name2recipes = graph.build(recipes, config=config, blacklist=blacklist)
     if exclude:
         for name in exclude:
@@ -567,6 +570,7 @@ def build_recipes(
             logger.info("Nothing to be done for recipe %s", recipe)
             continue
 
+        # TODO: reimplement this
         res = build(
             recipe=recipe,
             pkg_paths=pkg_paths,

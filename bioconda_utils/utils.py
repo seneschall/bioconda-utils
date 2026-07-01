@@ -23,12 +23,12 @@ import warnings
 import psutil
 
 from threading import Event, Thread
-from pathlib import PurePath
+from pathlib import Path, PurePath
 from collections import Counter, defaultdict, namedtuple, deque
-from collections.abc import Iterable
+from collections.abc import Generator, Iterable
 from itertools import product, chain, zip_longest
 from functools import partial
-from typing import Any, cast
+from typing import Any, Literal, NamedTuple, cast
 from collections.abc import Sequence, Collection
 from multiprocessing import Pool
 from multiprocessing.pool import ThreadPool
@@ -68,6 +68,23 @@ cast(Any, conda.gateways.logging).initialize_logging = lambda: None
 logger = logging.getLogger(__name__)
 
 disk_cache = diskcache.Cache(platformdirs.user_cache_dir("bioconda-utils"))
+
+
+class RecipePath(NamedTuple):
+    """
+    Named tuple with the fields:
+
+    path : Path
+
+    build_system : Literal[
+        "conda", "rattler", "none"
+    ]
+    """
+
+    path: Path
+    build_system: Literal[
+        "conda", "rattler", "none"
+    ]  # i.e. conda-build or rattler-build
 
 
 class TqdmHandler(logging.StreamHandler):
@@ -314,7 +331,7 @@ def setup_logger(
 
 
 def ellipsize_recipes(
-    recipes: Collection[str], recipe_folder: str, n: int = 5, m: int = 50
+    recipes: Collection[Path], recipe_folder: Path, n: int = 5, m: int = 50
 ) -> str:
     """Logging helper showing recipe list
 
@@ -334,12 +351,11 @@ def ellipsize_recipes(
         append = ", ..."
     else:
         append = ""
-    return (
-        " ("
-        + ", ".join(recipe.replace(recipe_folder, "").lstrip("/") for recipe in recipes)
-        + append
-        + ")"
-    )
+
+    processed_names: list[str] = [
+        Path(recipe).relative_to(recipe_folder).as_posix() for (recipe, _) in recipes
+    ]
+    return " (" + ", ".join(processed_names) + append + ")"
 
 
 class JinjaSilentUndefined(jinja2.Undefined):
@@ -833,7 +849,15 @@ def format_link(uri, fmt: str, prefix: str = "", label: str = ""):
         raise ValueError(f"Invalid link format: {fmt}")
 
 
-def get_recipes(recipe_folder, package="*", exclude=None):
+def get_recipe_paths(recipes: Iterable[RecipePath]) -> list[Path]:
+    return [recipe for (recipe, _) in recipes]
+
+
+def get_recipes(
+    recipe_folder: Path,
+    package: str | Iterable[str] = "*",
+    exclude: str | Iterable[str] | None = None,
+) -> Generator[RecipePath]:
     """
     Generator of recipes.
 
@@ -841,7 +865,7 @@ def get_recipes(recipe_folder, package="*", exclude=None):
 
     Parameters
     ----------
-    recipe_folder : str
+    recipe_folder : Path
         Top-level dir of the recipes
 
     package : str or iterable
@@ -853,28 +877,43 @@ def get_recipes(recipe_folder, package="*", exclude=None):
         exclude = [exclude]
     if exclude is None:
         exclude = []
+
     for p in package:
-        logger.debug("get_recipes(%s, package='%s'): %s", recipe_folder, package, p)
-        path = os.path.join(recipe_folder, p)
-        for new_dir in glob.glob(path):
-            meta_yaml_found_or_excluded = False
-            for dir_path, _, file_names in os.walk(new_dir):
-                if any(
-                    fnmatch.fnmatch(dir_path[len(recipe_folder) :], pat)
-                    for pat in exclude
-                ):
+        logger.debug(
+            "get_recipes(%s, package='%s'): %s", str(recipe_folder), package, p
+        )
+        for new_dir in recipe_folder.glob(p):
+            # guard for skipping hidden files to reproduce behaviour of glob.glob
+            if new_dir.name.startswith(".") and not p.startswith("."):
+                continue
+
+            meta_yaml_found_or_excluded: bool = False
+            recipe_yaml_found_or_excluded: bool = False
+
+            for dir_path, _, file_names in new_dir.walk():
+                # prepend `/` to replicate behaviour of legacy code
+                relative: str = "/" + dir_path.relative_to(recipe_folder).as_posix()
+
+                if any(fnmatch.fnmatch(relative, pat) for pat in exclude):
                     meta_yaml_found_or_excluded = True
                     continue
                 if "meta.yaml" in file_names:
                     meta_yaml_found_or_excluded = True
-                    yield dir_path
-            if not meta_yaml_found_or_excluded and os.path.isdir(new_dir):
+                    yield RecipePath(path=dir_path, build_system="conda")
+                elif "recipe.yaml" in file_names:
+                    recipe_yaml_found_or_excluded = True
+                    yield RecipePath(path=dir_path, build_system="rattler")
+            if (
+                not meta_yaml_found_or_excluded
+                and not recipe_yaml_found_or_excluded
+                and new_dir.is_dir()
+            ):
                 logger.warning(
-                    "No meta.yaml found in %s."
+                    "No meta.yaml or recipe.yaml found in %s."
                     " If you want to ignore this directory, add it to the blacklist.",
                     new_dir,
                 )
-                yield new_dir
+                yield RecipePath(path=new_dir, build_system="none")
 
 
 class DivergentBuildsError(Exception):

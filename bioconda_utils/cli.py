@@ -6,6 +6,9 @@ Bioconda Utils Command Line Interface
 # Workaround for spurious numpy warning message
 # ".../importlib/_bootstrap.py:219: RuntimeWarning: numpy.dtype size \
 # changed, may indicate binary incompatibility. Expected 96, got 88"
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Iterable, Literal, NamedTuple
 import warnings
 from bioconda_utils import bulk
 
@@ -176,7 +179,7 @@ def recipe_folder_and_config(allow_missing_for=None):
     return decorator
 
 
-def get_recipes_to_build(git_range: tuple[str], recipe_folder: str) -> list[str]:
+def get_recipes_to_build(git_range: Sequence[str], recipe_folder: Path) -> list[Path]:
     """Gets list of modified recipes according to git_range and blacklist
 
     See `BiocondaRepoMixin.get_recipes_to_build()`.
@@ -192,13 +195,17 @@ def get_recipes_to_build(git_range: tuple[str], recipe_folder: str) -> list[str]
         sys.exit("--git-range may have only one or two arguments")
     other = git_range[0]
     ref = "HEAD" if len(git_range) == 1 else git_range[1]
-    repo = BiocondaRepo(recipe_folder)
+    repo = BiocondaRepo(recipe_folder.as_posix())
     return repo.get_recipes_to_build(ref, other)
 
 
 def get_recipes(
-    config, recipe_folder, packages, git_range, include_blacklisted=False
-) -> list[str]:
+    config,
+    recipe_folder: Path,
+    packages: str | Iterable[str],
+    git_range,
+    include_blacklisted: bool = False,
+) -> list[utils.RecipePath]:
     """Gets list of paths to recipe folders to be built
 
     Considers all recipes matching globs in packages, constrains to
@@ -206,39 +213,47 @@ def get_recipes(
     removes blacklisted recipes (unless include_blacklisted=True).
 
     """
-    recipes = list(utils.get_recipes(recipe_folder, packages))
+    recipes: list[utils.RecipePath] = list(utils.get_recipes(recipe_folder, packages))
     logger.info(
         "Considering total of %s recipes%s.",
         len(recipes),
-        utils.ellipsize_recipes(recipes, recipe_folder),
+        utils.ellipsize_recipes(list(recipe.path for recipe in recipes), recipe_folder),
     )
 
     if git_range:
-        changed_recipes = get_recipes_to_build(git_range, recipe_folder)
+        changed_recipes_paths: list[Path] = get_recipes_to_build(
+            git_range, recipe_folder
+        )
         logger.info(
             "Constraining to %s git modified recipes%s.",
-            len(changed_recipes),
-            utils.ellipsize_recipes(changed_recipes, recipe_folder),
+            len(changed_recipes_paths),
+            utils.ellipsize_recipes(changed_recipes_paths, recipe_folder),
         )
-        recipes = [recipe for recipe in recipes if recipe in set(changed_recipes)]
-        if len(recipes) != len(changed_recipes):
+        recipes = [
+            recipe for recipe in recipes if recipe.path in set(changed_recipes_paths)
+        ]
+        if len(recipes) != len(changed_recipes_paths):
             logger.info(
                 "Overlap was %s recipes%s.",
                 len(recipes),
-                utils.ellipsize_recipes(recipes, recipe_folder),
+                utils.ellipsize_recipes(
+                    list(recipe.path for recipe in recipes), recipe_folder
+                ),
             )
 
     if not include_blacklisted:
         skiplist = Skiplist(config, recipe_folder)
         all_len = len(recipes)
-        recipes = [recipe for recipe in recipes if not skiplist.is_skiplisted(recipe)]
+        recipes = [
+            recipe for recipe in recipes if not skiplist.is_skiplisted(recipe.path)
+        ]
         if all_len > len(recipes):
             logger.info(f"Ignoring {all_len - len(recipes)} skiplisted recipes.")
 
     logger.info(
         "Processing %s recipes%s.",
         len(recipes),
-        utils.ellipsize_recipes(recipes, recipe_folder),
+        utils.ellipsize_recipes(list(recipe.path for recipe in recipes), recipe_folder),
     )
     return recipes
 
@@ -426,11 +441,14 @@ def do_lint(
     if cache is not None:
         utils.RepoData().set_cache(cache)
 
-    recipes = get_recipes(
+    recipes: list[utils.RecipePath] = get_recipes(
         config, recipe_folder, packages, git_range, include_blacklisted=True
     )
+
+    # convert recipes to strings for now, so linter code doesn't have to be refactored for now
+    recipe_strs: list[str] = [recipe.path.as_posix() for recipe in recipes]
     linter = lint.Linter(config, recipe_folder, exclude)
-    result = linter.lint(recipes, fix=try_fix)
+    result = linter.lint(recipe_strs, fix=try_fix)
     messages = linter.get_messages()
 
     if messages:
@@ -608,7 +626,7 @@ from environment, even after successful build and test.""",
 )
 @enable_logging()
 def build(
-    recipe_folder,
+    recipe_folder: str | Path,
     config,
     packages="*",
     git_range=None,
@@ -639,14 +657,20 @@ def build(
     subdag_depth=None,
 ):
     cfg = utils.load_config(config)
+    # TODO: should we also load the rattler variants config here?
     setup = cfg.get("setup", None)
     if setup:
         logger.debug("Running setup: %s", setup)
         for cmd in setup:
             utils.run(shlex.split(cmd), mask=False)
 
-    recipes = get_recipes(cfg, recipe_folder, packages, git_range)
+    # TODO: reimplement this
+    recipe_folder = Path(recipe_folder)
+    recipes: list[utils.RecipePath] = get_recipes(
+        cfg, recipe_folder, packages, git_range
+    )
 
+    # TODO: implement docker stuff
     if docker:
         if build_script_template is not None:
             build_script_template = open(build_script_template).read()
@@ -687,6 +711,7 @@ def build(
 
     label = os.getenv("BIOCONDA_LABEL", None) or None
 
+    # TODO: reimplement this
     success = build_recipes(
         recipe_folder,
         config,
