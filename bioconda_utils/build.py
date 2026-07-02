@@ -236,6 +236,8 @@ def build(
                     result = variant.run_build(
                         tool_config, output_dir=rattler_output_dir
                     )
+                    # add paths of built rattler packages to pkg_paths
+                    pkg_paths += result.packages
 
         logger.info(
             "BUILD SUCCESS %s", " ".join(os.path.basename(p) for p in pkg_paths)
@@ -588,12 +590,15 @@ def build_recipes(
                 finalize = True
             if not finalize and utils.recipe_requires_finalized_render(recipe):
                 finalize = True
-            pkg_paths = utils.get_package_paths(
-                recipe,
-                check_channels,
-                force=force,
-                finalize=finalize,
-            )
+            if recipe.build_system == "conda":
+                pkg_paths: list[Path] = utils.get_package_paths(
+                    recipe,
+                    check_channels,
+                    force=force,
+                    finalize=finalize,
+                )
+            else:
+                pkg_paths: list[Path] = []
         except utils.DivergentBuildsError as exc:
             logger.error(
                 "BUILD ERROR: packages with divergent build strings in repository "
@@ -615,12 +620,14 @@ def build_recipes(
             for pkg in nx.algorithms.descendants(subdag, name):
                 skip_dependent[pkg].append(recipe)
             continue
-        if not pkg_paths:
+        if not pkg_paths and recipe.build_system == "conda":
+            # for now, the package paths for rattler build are determined after the build
             logger.info("Nothing to be done for recipe %s", recipe)
             continue
 
+        skip_rattler: str = "all" if not force else "none"
         tool_config: rb.ToolConfiguration = rb.ToolConfiguration(
-            skip_existing="all", test_strategy="native", keep_build=True
+            skip_existing=skip_rattler, test_strategy="native", keep_build=False
         )
 
         if docker_builder is not None:
