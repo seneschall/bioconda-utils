@@ -2,6 +2,7 @@
 Package Builder
 """
 
+from collections.abc import Iterable
 from pathlib import Path
 import subprocess as sp
 from collections import defaultdict
@@ -162,9 +163,9 @@ def build(
         build_failure_record.remove()
 
     try:
-        if recipe.build_system == "conda":
+        if docker_builder is not None:
             report_resources(f"Starting build for {recipe}", docker_builder is not None)
-            if docker_builder is not None:
+            if recipe.build_system == "conda":
                 docker_builder.build_recipe(
                     recipe_dir=recipe.path.resolve(),
                     build_args=" ".join(args),
@@ -307,24 +308,24 @@ def store_build_failure_record(
 
 
 def remove_cycles(
-    dag: nx.DiGraph,
-    name2recipes: dict[str, set[str]],
-    failed: list[str],
-    skip_dependent: defaultdict[str, list[str]],
-) -> nx.DiGraph:
-    nodes_in_cycles = set()
+    dag: nx.DiGraph[str],
+    name2recipes: dict[str, set[utils.RecipePath]],
+    failed: list[utils.RecipePath],
+    skip_dependent: defaultdict[str, list[utils.RecipePath]],
+) -> nx.DiGraph[str]:
+    nodes_in_cycles: set[str] = set()
     for cycle in list(nx.simple_cycles(dag)):
         logger.error("BUILD ERROR: dependency cycle found: %s", cycle)
         nodes_in_cycles.update(cycle)
 
     for name in sorted(nodes_in_cycles):
-        cycle_fail_recipes = sorted(name2recipes[name])
+        cycle_fail_recipes: list[utils.RecipePath] = sorted(name2recipes[name])
         logger.error(
             "BUILD ERROR: cannot build recipes for %s since "
             "it cyclically depends on other packages in the "
             "current build job. Failed recipes: %s",
             name,
-            cycle_fail_recipes,
+            [r.path.as_posix() for r in cycle_fail_recipes],
         )
         failed.extend(cycle_fail_recipes)
         for node in nx.algorithms.descendants(dag, name):
@@ -334,11 +335,11 @@ def remove_cycles(
 
 
 def get_subdags(
-    dag: nx.DiGraph,
+    dag: nx.DiGraph[str],
     n_workers: int,
     worker_offset: int,
     subdag_depth: int | None,
-) -> nx.DiGraph:
+) -> nx.DiGraph[str]:
     if n_workers > 1 and worker_offset >= n_workers:
         raise ValueError(
             "n-workers is less than the worker-offset given! "
@@ -352,12 +353,12 @@ def get_subdags(
     #   1: only nodes with parents that are root nodes, etc.). They are assigned evenly across workers.
     if n_workers > 1:
         root_nodes = sorted([k for (k, v) in dag.in_degree() if v == 0])
-        nodes = set()
-        found = set()
-        children = []
+        nodes: set[str] = set()
+        found: set[str] = set()
+        children: itertools.chain[str] = itertools.chain()
 
         if subdag_depth is not None:
-            working_dag = nx.DiGraph(dag)
+            working_dag: nx.DiGraph[str] = nx.DiGraph(dag)
             # Only build the current "root" nodes after removing
             for i in range(0, subdag_depth + 1):
                 print(f"{len(root_nodes)} recipes at depth {i}")
@@ -400,7 +401,7 @@ def get_subdags(
 
 
 def do_not_consider_for_additional_platform(
-    recipe_folder: str, recipe: str, platform: str
+    recipe_folder: Path, recipe: utils.RecipePath, platform: str
 ) -> bool:
     """
     Given a recipe, check this recipe should skip in current platform or not.
@@ -413,7 +414,7 @@ def do_not_consider_for_additional_platform(
     Returns:
       Return True if current native platform are not included in recipe's additional platforms (no need to build).
     """
-    recipe_obj = _recipe.Recipe.from_file(recipe_folder, recipe)
+    recipe_obj = _recipe.Recipe.from_file(recipe_folder, recipe.path)
     # On linux-aarch64 or osx-arm64 env, only build recipe with matching extra_additional_platforms
     if platform == "linux-aarch64":
         if "linux-aarch64" not in recipe_obj.extra_additional_platforms:
@@ -427,7 +428,7 @@ def do_not_consider_for_additional_platform(
 def build_recipes(
     recipe_folder: Path,
     config_path: Path,
-    recipes: list[Path],
+    recipes: list[utils.RecipePath],
     mulled_test: bool = True,
     testonly: bool = False,
     force: bool = False,
@@ -489,6 +490,7 @@ def build_recipes(
     # TODO: reimplement this
     config = utils.load_config(config_path)
     blacklist = Skiplist(config, recipe_folder)
+    global_variants: rb.VariantConfig = utils.load_rattler_build_global_variants()
 
     # get channels to check
     if check_channels is None:
@@ -508,9 +510,8 @@ def build_recipes(
     else:
         linter = None
 
-    failed = []
+    failed: list[utils.RecipePath] = []
 
-    # TODO: reimplement this
     dag, name2recipes = graph.build(recipes, config=config, blacklist=blacklist)
     if exclude:
         for name in exclude:
@@ -520,9 +521,9 @@ def build_recipes(
         logger.info("Nothing to be done.")
         return True
 
-    skip_dependent = defaultdict(list)
+    skip_dependent: defaultdict[str, list[utils.RecipePath]] = defaultdict(list)
     dag = remove_cycles(dag, name2recipes, failed, skip_dependent)
-    subdag = get_subdags(dag, n_workers, worker_offset, subdag_depth)
+    subdag: nx.DiGraph[str] = get_subdags(dag, n_workers, worker_offset, subdag_depth)
     if not subdag:
         logger.info("Nothing to be done.")
         return True
@@ -532,20 +533,20 @@ def build_recipes(
         "\n".join(subdag.nodes()),
     )
 
-    recipe2name = {}
+    recipe2name: defaultdict[utils.RecipePath, str] = defaultdict()
     for name, recipe_list in name2recipes.items():
         for recipe in recipe_list:
             recipe2name[recipe] = name
 
-    recipe_jobs: list[tuple[str, str]] = [
+    recipe_jobs: list[tuple[utils.RecipePath, str]] = [
         (recipe, recipe2name[recipe])
         for package in nx.topological_sort(subdag)
         for recipe in name2recipes[package]
     ]
 
-    built_recipes = []
-    skipped_recipes = []
-    failed_uploads = []
+    built_recipes: list[utils.RecipePath] = []
+    skipped_recipes: list[utils.RecipePath] = []
+    failed_uploads: list[Path] = []
 
     for recipe, name in recipe_jobs:
         platform = utils.RepoData().native_platform()
@@ -554,7 +555,7 @@ def build_recipes(
         ):
             logger.info(
                 "BUILD SKIP: skipping %s for additional platform %s",
-                recipe,
+                recipe.path.as_posix(),
                 platform,
             )
             continue
@@ -562,13 +563,13 @@ def build_recipes(
         if name in skip_dependent:
             logger.info(
                 "BUILD SKIP: skipping %s because it depends on %s which had a failed build.",
-                recipe,
+                recipe.path.as_posix(),
                 skip_dependent[name],
             )
             skipped_recipes.append(recipe)
             continue
 
-        logger.info("Determining expected packages for %s", recipe)
+        logger.info("Determining expected packages for %s", recipe.path.as_posix())
         try:
             # When building with Docker, skip the expensive finalized render
             # on the host since Docker's conda-build will re-solve anyway.
@@ -618,9 +619,23 @@ def build_recipes(
             logger.info("Nothing to be done for recipe %s", recipe)
             continue
 
+        tool_config: rb.ToolConfiguration = rb.ToolConfiguration(
+            skip_existing="all", test_strategy="native", keep_build=True
+        )
+
+        if docker_builder is not None:
+            rattler_output_dir: Path = Path(docker_builder.pkg_dir)
+        else:
+            subfolder: str = utils.RepoData.platform2subdir(platform)
+            conda_build_config = utils.load_conda_build_config(platform=subfolder)
+            rattler_output_dir: Path = Path(conda_build_config.output_folder)
+
         # TODO: reimplement this
         res = build(
             recipe=recipe,
+            global_variants=global_variants,
+            tool_config=tool_config,
+            rattler_output_dir=rattler_output_dir,
             pkg_paths=pkg_paths,
             testonly=testonly,
             mulled_test=mulled_test,
@@ -672,7 +687,7 @@ def build_recipes(
             logger.error(
                 "BUILD SUMMARY: while the entire build failed, "
                 "the following recipes were built successfully:\n%s",
-                "\n".join(built_recipes),
+                "\n".join([r.path.as_posix() for r in built_recipes]),
             )
         for recipe in failed:
             logger.error("BUILD SUMMARY: FAILED recipe %s", recipe)
@@ -685,7 +700,7 @@ def build_recipes(
         if failed_uploads:
             logger.error(
                 "UPLOAD SUMMARY: the following packages failed to upload:\n%s",
-                "\n".join(failed_uploads),
+                "\n".join([u.as_posix() for u in failed_uploads]),
             )
         return False
 

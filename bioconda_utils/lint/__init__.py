@@ -96,6 +96,7 @@ from __future__ import annotations
 
 import abc
 import os
+from pathlib import Path
 import pkgutil
 import re
 import logging
@@ -504,13 +505,13 @@ class Linter:
 
     def __init__(
         self,
-        config: dict,
-        recipe_folder: str,
+        config: dict[str, Any],
+        recipe_folder: str | Path,
         exclude: list[str] | None = None,
         nocatch: bool = False,
     ) -> None:
         self.config = config
-        self.recipe_folder = recipe_folder
+        self.recipe_folder: Path = Path(recipe_folder)
         self.skip = self.load_skips()
         self.exclude = exclude or []
         self.nocatch = nocatch

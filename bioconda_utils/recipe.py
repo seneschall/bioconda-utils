@@ -265,7 +265,7 @@ class Recipe:
 
     @classmethod
     def from_file(
-        cls, recipe_dir, recipe_fname, return_exceptions=False
+        cls, recipe_dir: Path | str, recipe_fname: Path | str, return_exceptions=False
     ) -> Recipe | Exception:
         """Create new `Recipe` object from file
 
@@ -273,11 +273,14 @@ class Recipe:
            recipe_dir: Path to recipes folder
            recipe_fname: Relative path to recipe (folder or meta.yaml)
         """
-        if recipe_fname.endswith("meta.yaml"):
-            recipe_fname = os.path.dirname(recipe_fname)
+        recipe_dir = Path(recipe_dir)
+        recipe_fname = Path(recipe_fname)
+
+        if recipe_fname.name == "meta.yaml":
+            recipe_fname = recipe_fname.parent
         recipe = cls(recipe_fname, recipe_dir)
         try:
-            with open(os.path.join(recipe_fname, "meta.yaml")) as text:
+            with open((recipe_fname / "meta.yaml")) as text:
                 recipe.load_from_string(text.read())
         except FileNotFoundError:
             exc = MissingMetaYaml(recipe_fname)

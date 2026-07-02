@@ -606,7 +606,7 @@ def load_meta_and_recipe_fast(recipe: RecipePath, env=None) -> MetaOrRattler:
     elif recipe.build_system == "rattler":
         # TODO: how can I pass the global variants to the function so I don't
         # have to reload it constantly?
-        global_variants: rb.VariantConfig = _load_rattler_build_global_variants()
+        global_variants: rb.VariantConfig = load_rattler_build_global_variants()
         rattler = render_rattler_recipe(recipe.path, global_variants)
         return MetaOrRattler(path=recipe, meta=None, rattler=rattler)
     else:
@@ -615,7 +615,7 @@ def load_meta_and_recipe_fast(recipe: RecipePath, env=None) -> MetaOrRattler:
         )
 
 
-def _load_rattler_build_global_variants() -> rb.VariantConfig:
+def load_rattler_build_global_variants() -> rb.VariantConfig:
     bioconda_utils_bin = shutil.which("bioconda-utils")
     if bioconda_utils_bin is None:
         raise FileNotFoundError("Unable to find bioconda-utils on PATH")
@@ -1179,7 +1179,12 @@ def _filter_existing_packages(metas, check_channels):
     return new_metas, existing_metas, divergent_builds
 
 
-def get_package_paths(recipe, check_channels, force=False, finalize=True):
+def get_package_paths(
+    recipe: RecipePath,
+    check_channels: list[str],
+    force: bool = False,
+    finalize: bool = True,
+) -> list[Path]:
     if not force:
         if check_recipe_skippable(recipe, check_channels):
             # NB: If we skip early here, we don't detect possible divergent builds.
@@ -1209,12 +1214,14 @@ def get_package_paths(recipe, check_channels, force=False, finalize=True):
         build_metas = new_metas + existing_metas
     else:
         build_metas = new_metas
-    return list(
-        chain.from_iterable(api.get_output_file_paths(meta) for meta in build_metas)
+    # TODO: fix this to differentiate between rattler-build and conda-build
+    package_paths: list[str] = list(
+        chain.from_iterable((api.get_output_file_paths(meta)) for meta in build_metas)
     )
+    return [Path(p) for p in package_paths]
 
 
-def validate_config(config):
+def validate_config(config: str | dict[str, Any]):
     """
     Validate config against schema
 
