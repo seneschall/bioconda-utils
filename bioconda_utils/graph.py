@@ -7,12 +7,14 @@ import logging
 from collections import defaultdict
 from fnmatch import fnmatch
 from itertools import chain
+from pathlib import Path
 from typing import (
     Any,
 )
 from collections.abc import Iterable, Iterator, Sequence
 
 import networkx as nx
+import rattler_build as rb
 
 from bioconda_utils.recipe import Recipe
 from bioconda_utils.skiplist import Skiplist
@@ -23,11 +25,11 @@ logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
 
 def build(
-    recipes: Iterable[str],
+    recipes: Iterable[utils.RecipePath],
     config: dict[str, Any],
     blacklist: Skiplist | None = None,
     restrict: bool = True,
-) -> tuple[nx.DiGraph, defaultdict[str, set[str]]]:
+) -> tuple[nx.DiGraph[str], defaultdict[str, set[utils.RecipePath]]]:
     """
     Returns the DAG of recipe paths and a dictionary that maps package names to
     lists of recipe paths to all defined versions of the package.  defined
@@ -57,21 +59,34 @@ def build(
         values are lists and contain paths to all defined versions.
     """
     logger.info("Generating DAG")
-    recipes = list(recipes)
-    metadata = list(
-        utils.parallel_iter(utils.load_meta_fast, recipes, "Loading Recipes")
+    recipes: list[utils.RecipePath] = list(recipes)
+    # TODO: fix load meta fast so it returns the correct type
+    # we have to replace this with a function that returns both
+    meta_rattler_data: list[utils.MetaOrRattler] = list(
+        utils.parallel_iter(utils.load_meta_and_recipe_fast, recipes, "Loading Recipes")
     )
 
-    # name2recipe is meta.yaml's package:name mapped to the recipe path.
+    # name2recipe is meta.yaml's / recipe.yaml's package:name mapped to the recipe path.
     #
     # A name should map to exactly one recipe. It is possible for multiple
     # names to map to the same recipe, if the package name somehow depends on
     # the environment.
-    name2recipe = defaultdict(set)
-    for meta, recipe in metadata:
-        name = meta["package"]["name"]
-        if blacklist is None or not blacklist.is_skiplisted(recipe):
-            name2recipe[name].update([recipe])
+    name2recipe: defaultdict[str, set[utils.RecipePath]] = defaultdict(set)
+
+    for rendered_recipe in meta_rattler_data:
+        name: str = ""
+        if rendered_recipe.meta is not None:
+            # i.e. buildsystem is conda-build
+            name: str = rendered_recipe.meta["package"]["name"]
+        elif rendered_recipe.rattler is not None:
+            # i.e. build system is rattler-build
+            name: str = rendered_recipe.rattler[0].recipe.package.name
+        else:
+            raise ValueError(
+                f"No meta or rattler-recipe found for: {rendered_recipe.path.path.as_posix()}"
+            )
+        if blacklist is None or not blacklist.is_skiplisted(rendered_recipe.path.path):
+            name2recipe[name].update([rendered_recipe.path])
 
     def get_deps(meta: dict[str, Any], sec: str) -> list[str]:
         reqs = meta.get("requirements")
@@ -88,20 +103,44 @@ def build(
             if dep in name2recipe or not restrict:
                 yield dep
 
-    dag = nx.DiGraph()
-    dag.add_nodes_from(meta["package"]["name"] for meta, recipe in metadata)
-    for meta, recipe in metadata:
-        name = meta["package"]["name"]
-        dag.add_edges_from(
-            (dep, name)
-            for dep in set(
-                chain(
-                    get_inner_deps(get_deps(meta, "build")),
-                    get_inner_deps(get_deps(meta, "host")),
-                    get_inner_deps(get_deps(meta, "run")),
+    # TODO: is it more efficient to merge this with the loop above?
+    dag: nx.DiGraph[str] = nx.DiGraph()
+    dag.add_nodes_from(name2recipe.keys())
+    for rendered_recipe in meta_rattler_data:
+        if rendered_recipe.meta is not None:
+            # i.e. buildsystem is conda-build
+            meta: dict[str, Any] = rendered_recipe.meta
+            name: str = meta["package"]["name"]
+            dag.add_edges_from(
+                (dep, name)
+                for dep in set(
+                    chain(
+                        get_inner_deps(get_deps(meta, "build")),
+                        get_inner_deps(get_deps(meta, "host")),
+                        get_inner_deps(get_deps(meta, "run")),
+                    )
                 )
             )
-        )
+        elif rendered_recipe.rattler is not None:
+            # i.e. build system is rattler-build
+            rendered_variants: list[rb.RenderedVariant] = rendered_recipe.rattler
+            name: str = rendered_variants[0].recipe.package.name
+
+            for v in rendered_variants:
+                dag.add_edges_from(
+                    (dep, name)
+                    for dep in set(
+                        chain(
+                            get_inner_deps(v.recipe.requirements.build),
+                            get_inner_deps(v.recipe.requirements.host),
+                            get_inner_deps(v.recipe.requirements.run),
+                        )
+                    )
+                )
+        else:
+            raise ValueError(
+                f"No meta or rattler-recipe found for: {rendered_recipe.path.path.as_posix()}"
+            )
 
     return dag, name2recipe
 

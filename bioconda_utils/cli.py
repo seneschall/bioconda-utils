@@ -834,10 +834,13 @@ def handle_merged_pr(
     help="Hide singletons in the printed graph.",
 )
 @enable_logging()
-def dag(recipe_folder, config, packages="*", format="gml", hide_singletons=False):
+def dag(
+    recipe_folder: Path | str, config, packages="*", format="gml", hide_singletons=False
+) -> None:
     """
     Export the DAG of packages to a graph format file for visualization
     """
+    recipe_folder = Path(recipe_folder)
     dag, name2recipes = graph.build(utils.get_recipes(recipe_folder, packages), config)
     if hide_singletons:
         for node in nx.nodes(dag):
@@ -859,16 +862,18 @@ def dag(recipe_folder, config, packages="*", format="gml", hide_singletons=False
                 continue
             print(f"# subdag {i}")
             subdag = dag.subgraph(s)
-            recipes = [
-                recipe
+            recipes: list[str] = [
+                recipe.path.as_posix()
                 for package in nx.topological_sort(subdag)
                 for recipe in name2recipes[package]
             ]
             print("\n".join(recipes) + "\n")
         if not hide_singletons:
             print("# singletons")
-            recipes = [
-                recipe for package in singletons for recipe in name2recipes[package]
+            recipes: list[str] = [
+                recipe.path.as_posix()
+                for package in singletons
+                for recipe in name2recipes[package]
             ]
             print("\n".join(recipes) + "\n")
 

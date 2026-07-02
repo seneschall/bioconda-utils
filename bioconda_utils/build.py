@@ -16,6 +16,7 @@ from bioconda_utils.build_failure import BuildFailureRecord
 from conda.exports import UnsatisfiableError
 from conda_build.exceptions import DependencyNeedsBuildingError
 import networkx as nx
+import rattler_build as rb
 
 from . import utils
 from . import docker_utils
@@ -24,6 +25,8 @@ from . import upload
 from . import lint
 from . import graph
 from . import recipe as _recipe
+
+from conda_build import api
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +57,11 @@ def conda_build_purge() -> None:
 
 
 def build(
-    recipe: str,
-    pkg_paths: list[str] | None = None,
+    recipe: utils.RecipePath,
+    global_variants: rb.VariantConfig,
+    tool_config: rb.ToolConfiguration,
+    rattler_output_dir: Path,
+    pkg_paths: list[Path] | None = None,
     testonly: bool = False,
     mulled_test: bool = True,
     channels: list[str] | None = None,
@@ -131,62 +137,104 @@ def build(
 
     logger.debug("Build and Channel Args: %s", args)
 
-    # Even though there may be variants of the recipe that will be built, we
-    # will only be checking attributes that are independent of variants (pkg
-    # name, version, noarch, whether or not an extended container was used)
-    meta = utils.load_first_metadata(recipe, finalize=False)
-    is_noarch = bool(meta.get_value("build/noarch", default=False))
-    use_base_image = meta.get_value("extra/container", {}).get("extended-base", False)
+    use_base_image = None
+
+    if recipe.build_system == "conda":
+        # Even though there may be variants of the recipe that will be built, we
+        # will only be checking attributes that are independent of variants (pkg
+        # name, version, noarch, whether or not an extended container was used)
+        meta: api.MetaData | None = utils.load_first_metadata(
+            recipe.path, finalize=False
+        )
+        is_noarch = bool(meta.get_value("build/noarch", default=False))
+        use_base_image = meta.get_value("extra/container", {}).get(
+            "extended-base", False
+        )
     if use_base_image:
         base_image = "quay.io/bioconda/base-glibc-debian-bash:3.1"
     else:
         base_image = "quay.io/bioconda/base-glibc-busybox-bash:3.1"
 
-    build_failure_record = BuildFailureRecord(recipe)
+    build_failure_record = BuildFailureRecord(recipe.path.as_posix())
     build_failure_record_existed_before_build = build_failure_record.exists()
     if build_failure_record_existed_before_build:
         # remove record to avoid that it is leaked into the package
         build_failure_record.remove()
 
     try:
-        report_resources(f"Starting build for {recipe}", docker_builder is not None)
-        if docker_builder is not None:
-            docker_builder.build_recipe(
-                recipe_dir=os.path.abspath(recipe),
-                build_args=" ".join(args),
-                env=whitelisted_env,
-                noarch=is_noarch,
-                live_logs=live_logs,
-            )
-            # Use presence of expected packages to check for success
-            if docker_builder.pkg_dir is not None:
-                platform = utils.RepoData.native_platform()
-                subfolder = utils.RepoData.platform2subdir(platform)
-                conda_build_config = utils.load_conda_build_config(platform=subfolder)
-                pkg_paths = [
-                    p.replace(conda_build_config.output_folder, docker_builder.pkg_dir)
-                    for p in pkg_paths
-                ]
-
-            for pkg_path in pkg_paths:
-                if not os.path.exists(pkg_path):
-                    logger.error(
-                        "BUILD FAILED: the built package %s cannot be found",
-                        pkg_path,
+        if recipe.build_system == "conda":
+            report_resources(f"Starting build for {recipe}", docker_builder is not None)
+            if docker_builder is not None:
+                docker_builder.build_recipe(
+                    recipe_dir=recipe.path.resolve(),
+                    build_args=" ".join(args),
+                    env=whitelisted_env,
+                    noarch=is_noarch,
+                    live_logs=live_logs,
+                )
+                # Use presence of expected packages to check for success
+                if docker_builder.pkg_dir is not None:
+                    platform = utils.RepoData.native_platform()
+                    subfolder = utils.RepoData.platform2subdir(platform)
+                    conda_build_config = utils.load_conda_build_config(
+                        platform=subfolder
                     )
-                    return BuildResult(False, None)
+                    pkg_paths = [
+                        p.replace(
+                            conda_build_config.output_folder, docker_builder.pkg_dir
+                        )
+                        for p in pkg_paths
+                    ]
+
+                for pkg_path in pkg_paths:
+                    if not pkg_path.exists():
+                        logger.error(
+                            "BUILD FAILED: the built package %s cannot be found",
+                            pkg_path,
+                        )
+                        return BuildResult(False, None)
+            else:
+                # TODO: implement for rattler
+                pass
         else:
-            conda_build_cmd = [utils.bin_for("conda-build")]
-            # - Temporarily reset os.environ to avoid leaking env vars
-            # - Also pass filtered env to run()
-            # - Point conda-build to meta.yaml, to avoid building subdirs
-            with utils.sandboxed_env(whitelisted_env):
-                cmd = conda_build_cmd + args
-                for config_file in utils.get_conda_build_config_files():
-                    cmd += [config_file.arg, config_file.path]
-                cmd += [os.path.join(recipe, "meta.yaml")]
-                with utils.Progress():
-                    utils.run(cmd, mask=False, live=live_logs)
+            if recipe.build_system == "conda":
+                conda_build_cmd = [utils.bin_for("conda-build")]
+                # - Temporarily reset os.environ to avoid leaking env vars
+                # - Also pass filtered env to run()
+                # - Point conda-build to meta.yaml, to avoid building subdirs
+                with utils.sandboxed_env(whitelisted_env):
+                    cmd = conda_build_cmd + args
+                    for config_file in utils.get_conda_build_config_files():
+                        cmd += [config_file.arg, config_file.path]
+                    cmd += [str(recipe.path / "meta.yaml")]
+                    with utils.Progress():
+                        utils.run(cmd, mask=False, live=live_logs)
+            elif recipe.build_system == "rattler":
+                # TODO: implement for rattler
+                recipe_file: Path = recipe.path / "recipe.yaml"
+                local_variants_path: Path = recipe.path / "variants.yaml"
+
+                recipe_s0 = rb.Stage0Recipe.from_file(recipe_file)
+
+                # merging variants
+
+                variants: rb.VariantConfig = global_variants
+
+                if local_variants_path.exists():
+                    local_variants = rb.VariantConfig.from_file(local_variants_path)
+                    variants = global_variants.merge(local_variants)
+
+                # TODO: what is supposed to be stored at the `config_path`?
+                # platform_config = rb.PlatformConfig()
+                # render_config = rb.RenderConfig()
+
+                # rendering recipe
+                rendered_variants = recipe_s0.render(variants)
+
+                for variant in rendered_variants:
+                    result = variant.run_build(
+                        tool_config, output_dir=rattler_output_dir
+                    )
 
         logger.info(
             "BUILD SUCCESS %s", " ".join(os.path.basename(p) for p in pkg_paths)
@@ -378,7 +426,7 @@ def do_not_consider_for_additional_platform(
 
 def build_recipes(
     recipe_folder: Path,
-    config_path: str,
+    config_path: Path,
     recipes: list[Path],
     mulled_test: bool = True,
     testonly: bool = False,

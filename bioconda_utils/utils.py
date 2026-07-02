@@ -50,6 +50,7 @@ import backoff
 import yaml
 import jinja2
 from jinja2 import Environment, PackageLoader
+import rattler_build as rb
 
 # FIXME(upstream): For conda>=4.7.0 initialize_logging is (erroneously) called
 #                  by conda.core.index.get_index which messes up our logging.
@@ -527,7 +528,13 @@ def load_all_meta(recipe, config=None, finalize=True):
     return metas
 
 
-def load_meta_fast(recipe: str, env=None):
+class MetaOrRattler(NamedTuple):
+    path: RecipePath
+    meta: dict[str, Any] | None
+    rattler: list[rb.RenderedVariant] | None
+
+
+def load_meta_fast(recipe: Path, env=None) -> tuple[dict[str, Any], Path]:
     """
     Given a package name, find the current meta.yaml file, parse it, and return
     the dict.
@@ -543,12 +550,95 @@ def load_meta_fast(recipe: str, env=None):
         env = {}
 
     try:
-        pth = os.path.join(recipe, "meta.yaml")
+        pth: Path = recipe / "meta.yaml"
         template = jinja_silent_undef.from_string(open(pth, encoding="utf-8").read())
-        meta = yaml.safe_load(template.render(env))
+        meta: dict[str, Any] = yaml.safe_load(template.render(env))
         return (meta, recipe)
     except Exception:
         raise ValueError(f"Problem inspecting {recipe}")
+
+
+def render_rattler_recipe(
+    recipe: Path, global_variants: rb.VariantConfig, var_config=rb.VariantConfig
+) -> list[rb.RenderedVariant]:
+    """
+    Given a package name, find the current recipe.yaml file, render it, and return
+    the rendered variants.
+    """
+    try:
+        # TODO: where do I set the channels for rattler to check?
+        tool_config = rb.ToolConfiguration(
+            skip_existing="all", test_strategy="native", keep_build=True
+        )
+
+        # Parse YAML into Stage0Recipe
+        recipe_file: Path = Path(recipe) / "recipe.yaml"
+        local_variants_path: Path = Path(recipe) / "variants.yaml"
+
+        recipe_s0 = rb.Stage0Recipe.from_file(recipe_file)
+
+        # merging variants
+
+        variants: rb.VariantConfig = global_variants
+
+        if local_variants_path.exists():
+            local_variants = rb.VariantConfig.from_file(local_variants_path)
+            variants = global_variants.merge(local_variants)
+
+        # rendering recipe
+        rendered_variants: list[rb.RenderedVariant] = recipe_s0.render(variants)
+
+        return rendered_variants
+    except Exception:
+        raise ValueError("Problem inspecting {0}".format(recipe))
+
+
+def load_meta_and_recipe_fast(recipe: RecipePath, env=None) -> MetaOrRattler:
+    """
+    Given a RecipePath, check whether the given package should be build with conda build
+    or rattler. Returns a MetaOrRattler object containing the original RecipePath and either
+    the contents of the recipe's meta.yaml (for conda build recipes) or a rattler build
+    RenderedVariant (for rattler build recipes). The other field will be set to None.
+    """
+    if recipe.build_system == "conda":
+        meta, _ = load_meta_fast(recipe.path, env)
+        return MetaOrRattler(path=recipe, meta=meta, rattler=None)
+    elif recipe.build_system == "rattler":
+        # TODO: how can I pass the global variants to the function so I don't
+        # have to reload it constantly?
+        global_variants: rb.VariantConfig = _load_rattler_build_global_variants()
+        rattler = render_rattler_recipe(recipe.path, global_variants)
+        return MetaOrRattler(path=recipe, meta=None, rattler=rattler)
+    else:
+        raise ValueError(
+            f"Failed to load meta or rattler recipe. Directory empty for: {recipe.path.as_posix()}"
+        )
+
+
+def _load_rattler_build_global_variants() -> rb.VariantConfig:
+    bioconda_utils_bin = shutil.which("bioconda-utils")
+    if bioconda_utils_bin is None:
+        raise FileNotFoundError("Unable to find bioconda-utils on PATH")
+    env_root = PurePath(bioconda_utils_bin).parents[1]
+    paths: list[Path] = [
+        Path(env_root) / "bioconda_utils-variants.yaml",
+        Path(__file__).resolve().parent / "bioconda_utils-variants.yaml",
+    ]
+
+    global_variants: rb.VariantConfig | None = None
+
+    for p in paths:
+        if p.exists():
+            global_variants = rb.VariantConfig.from_file(p)
+            break
+
+    if global_variants is None:
+        path_str: str = ", ".join([str(p) for p in paths])
+        raise FileNotFoundError(
+            f"Failed to load bioconda_utils-variants.yaml from any of these paths: {path_str}"
+        )
+    else:
+        return global_variants
 
 
 def load_conda_build_config(platform=None, trim_skip=True):
@@ -600,7 +690,7 @@ def get_conda_build_config_files(config=None):
         yield CondaBuildConfigFile("-m", file_path)
 
 
-def load_first_metadata(recipe, config=None, finalize=True):
+def load_first_metadata(recipe: Path, config=None, finalize=True):
     """
     Returns just the first of possibly many metadata files. Used for when you
     need to do things like check a package name or version number (which are
