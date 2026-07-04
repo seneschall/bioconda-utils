@@ -29,7 +29,7 @@ def build(
     config: dict[str, Any],
     blacklist: Skiplist | None = None,
     restrict: bool = True,
-) -> tuple[nx.DiGraph[str], defaultdict[str, set[utils.RecipePath]]]:
+) -> tuple[nx.DiGraph, defaultdict[str, set[utils.RecipePath]]]:
     """
     Returns the DAG of recipe paths and a dictionary that maps package names to
     lists of recipe paths to all defined versions of the package.  defined
@@ -104,7 +104,7 @@ def build(
                 yield dep
 
     # TODO (rb): is it more efficient to merge this with the loop above?
-    dag: nx.DiGraph[str] = nx.DiGraph()
+    dag: nx.DiGraph = nx.DiGraph()
     dag.add_nodes_from(name2recipe.keys())
     for rendered_recipe in meta_rattler_data:
         if rendered_recipe.meta is not None:

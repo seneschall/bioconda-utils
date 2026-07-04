@@ -72,7 +72,7 @@ def build(
     linter: lint.Linter | None = None,
     mulled_conda_image: str = pkg_test.CREATE_ENV_IMAGE,
     record_build_failure: bool = False,
-    dag: nx.DiGraph[str] | None = None,
+    dag: nx.DiGraph | None = None,
     skiplist_leafs: bool = False,
     live_logs: bool = True,
     presolved_mulled_test: bool = True,
@@ -317,11 +317,11 @@ def store_build_failure_record(
 
 
 def remove_cycles(
-    dag: nx.DiGraph[str],
+    dag: nx.DiGraph,
     name2recipes: dict[str, set[utils.RecipePath]],
     failed: list[utils.RecipePath],
     skip_dependent: defaultdict[str, list[utils.RecipePath]],
-) -> nx.DiGraph[str]:
+) -> nx.DiGraph:
     nodes_in_cycles: set[str] = set()
     for cycle in list(nx.simple_cycles(dag)):
         logger.error("BUILD ERROR: dependency cycle found: %s", cycle)
@@ -344,11 +344,11 @@ def remove_cycles(
 
 
 def get_subdags(
-    dag: nx.DiGraph[str],
+    dag: nx.DiGraph,
     n_workers: int,
     worker_offset: int,
     subdag_depth: int | None,
-) -> nx.DiGraph[str]:
+) -> nx.DiGraph:
     if n_workers > 1 and worker_offset >= n_workers:
         raise ValueError(
             "n-workers is less than the worker-offset given! "
@@ -367,7 +367,7 @@ def get_subdags(
         children: itertools.chain[str] = itertools.chain()
 
         if subdag_depth is not None:
-            working_dag: nx.DiGraph[str] = nx.DiGraph(dag)
+            working_dag: nx.DiGraph = nx.DiGraph(dag)
             # Only build the current "root" nodes after removing
             for i in range(0, subdag_depth + 1):
                 print(f"{len(root_nodes)} recipes at depth {i}")
@@ -534,7 +534,7 @@ def build_recipes(
 
     skip_dependent: defaultdict[str, list[utils.RecipePath]] = defaultdict(list)
     dag = remove_cycles(dag, name2recipes, failed, skip_dependent)
-    subdag: nx.DiGraph[str] = get_subdags(dag, n_workers, worker_offset, subdag_depth)
+    subdag: nx.DiGraph = get_subdags(dag, n_workers, worker_offset, subdag_depth)
     if not subdag:
         logger.info("Nothing to be done.")
         return True
