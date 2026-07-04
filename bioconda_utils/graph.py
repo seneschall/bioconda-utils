@@ -60,7 +60,7 @@ def build(
     """
     logger.info("Generating DAG")
     recipes: list[utils.RecipePath] = list(recipes)
-    # TODO: fix load meta fast so it returns the correct type
+    # TODO (rb): fix load meta fast so it returns the correct type
     # we have to replace this with a function that returns both
     meta_rattler_data: list[utils.MetaOrRattler] = list(
         utils.parallel_iter(utils.load_meta_and_recipe_fast, recipes, "Loading Recipes")
@@ -103,7 +103,7 @@ def build(
             if dep in name2recipe or not restrict:
                 yield dep
 
-    # TODO: is it more efficient to merge this with the loop above?
+    # TODO (rb): is it more efficient to merge this with the loop above?
     dag: nx.DiGraph[str] = nx.DiGraph()
     dag.add_nodes_from(name2recipe.keys())
     for rendered_recipe in meta_rattler_data:

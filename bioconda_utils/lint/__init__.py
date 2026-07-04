@@ -578,7 +578,7 @@ class Linter:
             skip_dict[recipe].append(func)
         return skip_dict
 
-    def lint(self, recipe_names: list[str], fix: bool = False) -> bool:
+    def lint(self, recipe_names: list[str] | list[Path], fix: bool = False) -> bool:
         """Run linter on multiple recipes
 
         Lint messages are collected in the linter. They can be retrieved
@@ -595,27 +595,28 @@ class Linter:
         for recipe_name in utils.tqdm(sorted(recipe_names)):
             self.order_and_load_checks()
             try:
-                msgs = self.lint_one(recipe_name, fix=fix)
+                msgs = self.lint_one(Path(recipe_name), fix=fix)
             except Exception:
                 if self.nocatch:
                     raise
                 logger.exception("Unexpected exception in lint")
-                recipe = _recipe.Recipe(recipe_name, self.recipe_folder)
+                recipe = _recipe.Recipe(Path(recipe_name), self.recipe_folder)
                 msgs = [linter_failure.make_message(recipe=recipe)]
             self._messages.extend(msgs)
 
         return any(message.severity >= ERROR for message in self._messages)
 
-    def lint_one(self, recipe_name: str, fix: bool = False) -> list[LintMessage]:
+    def lint_one(self, recipe_name: Path | str, fix: bool = False) -> list[LintMessage]:
         """Run the linter on a single recipe
 
         Args:
-          recipe_name: Mames of recipe to lint
+          recipe_name: Names of recipe to lint
           fix: Whether checks should attempt to fix detected issues
 
         Returns:
           List of collected messages
         """
+        recipe_name = Path(recipe_name)
         try:
             recipe = _recipe.Recipe.from_file(self.recipe_folder, recipe_name)
         except _recipe.RecipeError as exc:
@@ -624,7 +625,7 @@ class Linter:
             return [check_cls.make_message(recipe=recipe, line=getattr(exc, "line"))]
 
         # collect checks to skip
-        checks_to_skip = set(self.skip[recipe_name])
+        checks_to_skip = set(self.skip[recipe_name.as_posix()])
         checks_to_skip.update(self.exclude)
         if isinstance(recipe.get("extra/skip-lints", []), list):
             # If they are not, the extra_skip_lints_not_list check

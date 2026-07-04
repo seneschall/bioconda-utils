@@ -1,9 +1,13 @@
+from pathlib import Path
 from textwrap import dedent
 import tempfile
+from typing import Literal
 import yaml
 import os
+import rattler_build as rb
 
 from conda_index.index import update_index
+from bioconda_utils import utils
 
 
 def ensure_missing(package):
@@ -113,3 +117,28 @@ class Recipes:
     @property
     def recipe_dirnames(self):
         return list(self.recipe_dirs.values())
+
+
+def get_rattler_params(
+    path: Path, build_system: Literal["conda", "rattler"], docker_builder
+) -> tuple[
+    utils.RecipePath, rb.VariantConfig, rb.ToolConfiguration, rb.RenderConfig, Path
+]:
+    platform_config: rb.PlatformConfig = rb.PlatformConfig()
+    skip_rattler: str = "all"
+    render_config: rb.RenderConfig = rb.RenderConfig(platform=platform_config)
+    global_variants: rb.VariantConfig = utils.load_rattler_build_global_variants()
+    tool_config: rb.ToolConfiguration = rb.ToolConfiguration(
+        skip_existing=skip_rattler, test_strategy="native", keep_build=False
+    )
+    if docker_builder is not None:
+        rattler_output_dir: Path = Path(docker_builder.pkg_dir)
+    else:
+        platform = utils.RepoData().native_platform()
+        subfolder: str = utils.RepoData.platform2subdir(platform)
+        conda_build_config = utils.load_conda_build_config(platform=subfolder)
+        rattler_output_dir: Path = Path(conda_build_config.output_folder)
+    recipe_path: utils.RecipePath = utils.RecipePath(
+        path=path, build_system=build_system
+    )
+    return recipe_path, global_variants, tool_config, render_config, rattler_output_dir

@@ -61,6 +61,7 @@ def build(
     recipe: utils.RecipePath,
     global_variants: rb.VariantConfig,
     tool_config: rb.ToolConfiguration,
+    render_config: rb.RenderConfig,
     rattler_output_dir: Path,
     pkg_paths: list[Path] | None = None,
     testonly: bool = False,
@@ -71,7 +72,7 @@ def build(
     linter: lint.Linter | None = None,
     mulled_conda_image: str = pkg_test.CREATE_ENV_IMAGE,
     record_build_failure: bool = False,
-    dag: nx.DiGraph | None = None,
+    dag: nx.DiGraph[str] | None = None,
     skiplist_leafs: bool = False,
     live_logs: bool = True,
     presolved_mulled_test: bool = True,
@@ -104,18 +105,23 @@ def build(
     if pkg_paths is None:
         pkg_paths = []
 
-    if linter:
-        logger.info("Linting recipe %s", recipe)
+    if linter and recipe.build_system == "conda":
+        logger.info("Linting recipe %s", recipe.path.as_posix())
         linter.clear_messages()
-        if linter.lint([recipe]):
+        if linter.lint([recipe.path]):
             logger.error(
                 "\n\nThe recipe %s failed linting. See "
                 "https://bioconda.github.io/contributor/linting.html for details:\n\n%s\n",
-                recipe,
+                recipe.path.as_posix(),
                 linter.get_report(),
             )
             return BuildResult(False, None)
         logger.info("Lint checks passed")
+    elif linter and recipe.build_system == "rattler":
+        logger.warning(
+            "Linting is currently only implemented for conda-build recipes. Skipping rattler-build recipe: %s",
+            recipe.path.as_posix(),
+        )
 
     # Copy env allowing only whitelisted vars
     whitelisted_env = {
@@ -124,7 +130,7 @@ def build(
         if utils.allowed_env_var(k, docker_builder is not None)
     }
 
-    logger.info("BUILD START %s", recipe)
+    logger.info("BUILD START %s", recipe.path.as_posix())
 
     args = ["--override-channels"]
     if testonly:
@@ -167,7 +173,7 @@ def build(
             report_resources(f"Starting build for {recipe}", docker_builder is not None)
             if recipe.build_system == "conda":
                 docker_builder.build_recipe(
-                    recipe_dir=recipe.path.resolve(),
+                    recipe_dir=recipe.path.resolve().as_posix(),
                     build_args=" ".join(args),
                     env=whitelisted_env,
                     noarch=is_noarch,
@@ -180,10 +186,12 @@ def build(
                     conda_build_config = utils.load_conda_build_config(
                         platform=subfolder
                     )
+
+                    conda_build_root: Path = Path(conda_build_config.output_folder)
+                    docker_build_root: Path = Path(docker_builder.pkg_dir)
+
                     pkg_paths = [
-                        p.replace(
-                            conda_build_config.output_folder, docker_builder.pkg_dir
-                        )
+                        docker_build_root / p.relative_to(conda_build_root)
                         for p in pkg_paths
                     ]
 
@@ -195,8 +203,12 @@ def build(
                         )
                         return BuildResult(False, None)
             else:
-                # TODO: implement for rattler
-                pass
+                # TODO (rb): implement for rattler-build
+                logger.error(
+                    "BUILD FAILED: rattler-build not yet implemented for docker. Failed for package %s",
+                    recipe.path.as_posix(),
+                )
+                return BuildResult(False, None)
         else:
             if recipe.build_system == "conda":
                 conda_build_cmd = [utils.bin_for("conda-build")]
@@ -211,7 +223,6 @@ def build(
                     with utils.Progress():
                         utils.run(cmd, mask=False, live=live_logs)
             elif recipe.build_system == "rattler":
-                # TODO: implement for rattler
                 recipe_file: Path = recipe.path / "recipe.yaml"
                 local_variants_path: Path = recipe.path / "variants.yaml"
 
@@ -225,16 +236,12 @@ def build(
                     local_variants = rb.VariantConfig.from_file(local_variants_path)
                     variants = global_variants.merge(local_variants)
 
-                # TODO: what is supposed to be stored at the `config_path`?
-                # platform_config = rb.PlatformConfig()
-                # render_config = rb.RenderConfig()
-
                 # rendering recipe
-                rendered_variants = recipe_s0.render(variants)
+                rendered_variants = recipe_s0.render(variants, render_config)
 
                 for variant in rendered_variants:
                     result = variant.run_build(
-                        tool_config, output_dir=rattler_output_dir
+                        tool_config, channels=channels, output_dir=rattler_output_dir
                     )
                     # add paths of built rattler packages to pkg_paths
                     pkg_paths += result.packages
@@ -489,10 +496,12 @@ def build_recipes(
         logger.info("Nothing to be done.")
         return True
 
-    # TODO: reimplement this
     config = utils.load_config(config_path)
     blacklist = Skiplist(config, recipe_folder)
     global_variants: rb.VariantConfig = utils.load_rattler_build_global_variants()
+    # TODO (rb): make platform_config and render_config customisable
+    platform_config: rb.PlatformConfig = rb.PlatformConfig()
+    render_config: rb.RenderConfig = rb.RenderConfig(platform=platform_config)
 
     # get channels to check
     if check_channels is None:
@@ -637,11 +646,11 @@ def build_recipes(
             conda_build_config = utils.load_conda_build_config(platform=subfolder)
             rattler_output_dir: Path = Path(conda_build_config.output_folder)
 
-        # TODO: reimplement this
         res = build(
             recipe=recipe,
             global_variants=global_variants,
             tool_config=tool_config,
+            render_config=render_config,
             rattler_output_dir=rattler_output_dir,
             pkg_paths=pkg_paths,
             testonly=testonly,
@@ -675,6 +684,7 @@ def build_recipes(
                         docker_utils.purgeImage(mulled_upload_target, img)
 
         # remove traces of the build
+        # TODO (rb): how can we purge the rattler-build cache?
         if not keep_old_work:
             conda_build_purge()
             # prune stopped containers

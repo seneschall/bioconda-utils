@@ -8,7 +8,7 @@ Bioconda Utils Command Line Interface
 # changed, may indicate binary incompatibility. Expected 96, got 88"
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Iterable, Literal, NamedTuple
+from typing import Any, Iterable, Literal, NamedTuple
 import warnings
 from bioconda_utils import bulk
 
@@ -200,10 +200,10 @@ def get_recipes_to_build(git_range: Sequence[str], recipe_folder: Path) -> list[
 
 
 def get_recipes(
-    config,
+    config: dict[str, Any],
     recipe_folder: Path,
     packages: str | Iterable[str],
-    git_range,
+    git_range: Sequence[str] | None,
     include_blacklisted: bool = False,
 ) -> list[utils.RecipePath]:
     """Gets list of paths to recipe folders to be built
@@ -627,11 +627,11 @@ from environment, even after successful build and test.""",
 @enable_logging()
 def build(
     recipe_folder: str | Path,
-    config,
+    config: str | Path,
     packages="*",
-    git_range=None,
-    testonly=False,
-    force=False,
+    git_range: Sequence[str] | None = None,
+    testonly: bool = False,
+    force: bool = False,
     docker=None,
     mulled_test=False,
     build_script_template=None,
@@ -656,15 +656,17 @@ def build(
     exclude=None,
     subdag_depth=None,
 ):
+    config = Path(config)
     cfg = utils.load_config(config)
     # TODO: should we also load the rattler variants config here?
+    # currently it is loaded by utils.load_rattler_build_global_variants
+    # using a semi-hardcoded path
     setup = cfg.get("setup", None)
     if setup:
         logger.debug("Running setup: %s", setup)
         for cmd in setup:
             utils.run(shlex.split(cmd), mask=False)
 
-    # TODO: reimplement this
     recipe_folder = Path(recipe_folder)
     recipes: list[utils.RecipePath] = get_recipes(
         cfg, recipe_folder, packages, git_range
@@ -711,7 +713,6 @@ def build(
 
     label = os.getenv("BIOCONDA_LABEL", None) or None
 
-    # TODO: reimplement this
     success = build_recipes(
         recipe_folder,
         config,
@@ -1568,7 +1569,7 @@ def annotate_build_failures(
 )
 def list_build_failures(
     recipe_folder: str,
-    config: dict,
+    config: dict[str, Any],
     channel: str = "bioconda",
     output_format: str = "txt",
     link_prefix: str = "",
