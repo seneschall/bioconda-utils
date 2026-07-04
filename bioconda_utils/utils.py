@@ -350,7 +350,7 @@ def ellipsize_recipes(
         append = ""
 
     processed_names: list[str] = [
-        Path(recipe).relative_to(recipe_folder).as_posix() for (recipe, _) in recipes
+        Path(recipe).relative_to(recipe_folder).as_posix() for recipe in recipes
     ]
     return " (" + ", ".join(processed_names) + append + ")"
 
