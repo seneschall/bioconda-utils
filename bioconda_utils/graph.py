@@ -8,8 +8,10 @@ from collections import defaultdict
 from fnmatch import fnmatch
 from itertools import chain
 from pathlib import Path
+from token import ISTERMINAL
 from typing import (
     Any,
+    Literal,
 )
 from collections.abc import Iterable, Iterator, Sequence
 
@@ -88,14 +90,27 @@ def build(
         if blacklist is None or not blacklist.is_skiplisted(rendered_recipe.path.path):
             name2recipe[name].update([rendered_recipe.path])
 
-    def get_deps(meta: dict[str, Any], sec: str) -> list[str]:
+    def get_deps(
+        meta: dict[str, Any], sec: str, build_system: Literal["conda", "rattler"]
+    ) -> list[str]:
         reqs = meta.get("requirements")
         if not reqs:
             return []
         deps = reqs.get(sec)
         if not deps:
             return []
-        return [dep.split()[0] for dep in deps if dep]
+        if build_system == "conda":
+            return [dep.split()[0] for dep in deps if dep]
+        else:
+            result: list[str] = []
+            for dep in deps:
+                if isinstance(dep, str):
+                    result.append(dep)
+                elif isinstance(dep, dict) and "pin_subpackage" in dep:
+                    result.append(dep["pin_subpackage"]["name"])
+                else:
+                    raise ValueError(f"Failed to parse dependency: {dep}")
+            return result
 
     def get_inner_deps(dependencies: Iterable[str]) -> Iterator[str]:
         dependencies = list(dependencies)
@@ -115,25 +130,25 @@ def build(
                 (dep, name)
                 for dep in set(
                     chain(
-                        get_inner_deps(get_deps(meta, "build")),
-                        get_inner_deps(get_deps(meta, "host")),
-                        get_inner_deps(get_deps(meta, "run")),
+                        get_inner_deps(get_deps(meta, "build", "conda")),
+                        get_inner_deps(get_deps(meta, "host", "conda")),
+                        get_inner_deps(get_deps(meta, "run", "conda")),
                     )
                 )
             )
         elif rendered_recipe.rattler is not None:
             # i.e. build system is rattler-build
-            rendered_variants: list[rb.RenderedVariant] = rendered_recipe.rattler
-            name: str = rendered_variants[0].recipe.package.name
+            rendered_variants: list[dict[str, Any]] = rendered_recipe.rattler
+            name: str = rendered_variants[0]["package"]["name"]
 
             for v in rendered_variants:
                 dag.add_edges_from(
                     (dep, name)
                     for dep in set(
                         chain(
-                            get_inner_deps(v.recipe.requirements.build),
-                            get_inner_deps(v.recipe.requirements.host),
-                            get_inner_deps(v.recipe.requirements.run),
+                            get_inner_deps(get_deps(v, "build", "rattler")),
+                            get_inner_deps(get_deps(v, "host", "rattler")),
+                            get_inner_deps(get_deps(v, "run", "rattler")),
                         )
                     )
                 )

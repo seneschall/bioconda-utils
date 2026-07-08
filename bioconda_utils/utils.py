@@ -527,7 +527,7 @@ def load_all_meta(recipe: Path, config=None, finalize=True):
 class MetaOrRattler(NamedTuple):
     path: RecipePath
     meta: dict[str, Any] | None
-    rattler: list[rb.RenderedVariant] | None
+    rattler: list[dict[str, Any]] | None
 
 
 def load_meta_fast(recipe: Path, env=None) -> tuple[dict[str, Any], Path]:
@@ -598,7 +598,10 @@ def load_meta_and_recipe_fast(recipe: RecipePath, env=None) -> MetaOrRattler:
         # TODO (rb): is it possible to pass the global variants to the function
         # so we don't have to reload it constantly?
         global_variants: rb.VariantConfig = load_rattler_build_global_variants()
-        rattler = render_rattler_recipe(recipe.path, global_variants)
+        rattler = [
+            r.recipe.to_dict()
+            for r in render_rattler_recipe(recipe.path, global_variants)
+        ]
         return MetaOrRattler(path=recipe, meta=None, rattler=rattler)
     else:
         raise ValueError(
