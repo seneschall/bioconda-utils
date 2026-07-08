@@ -6,6 +6,7 @@ This module collects small pieces of code used throughout :py:mod:`bioconda_util
 
 import asyncio
 import contextlib
+from dataclasses import dataclass
 import datetime
 import fnmatch
 import glob
@@ -524,10 +525,77 @@ def load_all_meta(recipe: Path, config=None, finalize=True):
     return metas
 
 
-class MetaOrRattler(NamedTuple):
+@dataclass(slots=True)
+class MetaOrRattler:
     path: RecipePath
     meta: dict[str, Any] | None
     rattler: list[dict[str, Any]] | None
+
+    def __init__(
+        self,
+        path: RecipePath,
+        meta: dict[str, Any] | None,
+        rattler: list[dict[str, Any]] | None,
+    ) -> None:
+        if meta is None and rattler is None:
+            raise ValueError(
+                f"Either meta and rattler must be set but both are None for recipe: {path.path.as_posix()}"
+            )
+        self.path = path
+        self.meta = meta
+        self.rattler = rattler
+
+    def get_package_name(self) -> str:
+        if self.meta is not None:
+            return self.meta["package"]["name"]
+        elif self.rattler is not None:
+            return self.rattler[0]["package"]["name"]
+        else:
+            raise ValueError(
+                f"No meta or rattler-recipe found for: {self.path.path.as_posix()}"
+            )
+
+    def get_dependencies(self, section: Literal["build", "host", "run"]) -> list[str]:
+        if self.meta is not None:
+            requirements = self.meta.get("requirements")
+            # elif self.rattler is not None:
+            #     requirements = self.rattler[0].get("requirements")
+            if not requirements:
+                return []
+
+            deps = requirements.get(section)
+
+            if not deps:
+                return []
+            return [dep.split()[0] for dep in deps if dep]
+        elif self.rattler is not None:
+            result: list[str] = []
+
+            # return the dependencies of all variants as dependencies of this
+            # package. If this should be able to be split by variants, that behaviour
+            # needs to be implemented separately
+            for variant in self.rattler:
+                requirements = variant.get("requirements")
+                if not requirements:
+                    return []
+                deps = requirements.get(section)
+                if not deps:
+                    return []
+
+                for dep in deps:
+                    if isinstance(dep, str):
+                        result.append(dep)
+                    elif isinstance(dep, dict) and "pin_subpackage" in dep:
+                        result.append(dep["pin_subpackage"]["name"])
+                    else:
+                        raise ValueError(f"Failed to parse dependency: {dep}")
+
+            return result
+        else:
+            # this is just to appease linters. Due to __init__ this will never be called
+            raise ValueError(
+                f"Either meta and rattler must be set but both are None for recipe: {self.path.path.as_posix()}"
+            )
 
 
 def load_meta_fast(recipe: Path, env=None) -> tuple[dict[str, Any], Path]:
@@ -584,7 +652,9 @@ def render_rattler_recipe(
         raise ValueError("Problem inspecting {0}".format(recipe))
 
 
-def load_meta_and_recipe_fast(recipe: RecipePath, env=None) -> MetaOrRattler:
+def load_meta_and_recipe_fast(
+    recipe: RecipePath, global_variants: rb.VariantConfig, env=None
+) -> MetaOrRattler:
     """
     Given a RecipePath, check whether the given package should be build with conda build
     or rattler. Returns a MetaOrRattler object containing the original RecipePath and either
