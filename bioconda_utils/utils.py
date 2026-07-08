@@ -6,7 +6,6 @@ This module collects small pieces of code used throughout :py:mod:`bioconda_util
 
 import asyncio
 import contextlib
-from dataclasses import dataclass
 import datetime
 import fnmatch
 import glob
@@ -22,6 +21,7 @@ import sys
 import warnings
 from collections import Counter, defaultdict, deque, namedtuple
 from collections.abc import Collection, Generator, Iterable, Sequence
+from dataclasses import dataclass
 from functools import partial
 from importlib.resources import as_file, files
 from itertools import chain, product, zip_longest
@@ -586,7 +586,9 @@ class MetaOrRattler:
                     if isinstance(dep, str):
                         result.append(dep)
                     elif isinstance(dep, dict) and "pin_subpackage" in dep:
-                        result.append(dep["pin_subpackage"]["name"])
+                        continue
+                        # the following leads to cyclical dependencies:
+                        # result.append(dep["pin_subpackage"]["name"])
                     else:
                         raise ValueError(f"Failed to parse dependency: {dep}")
 
@@ -652,9 +654,37 @@ def render_rattler_recipe(
         raise ValueError("Problem inspecting {0}".format(recipe))
 
 
-def load_meta_and_recipe_fast(
-    recipe: RecipePath, global_variants: rb.VariantConfig, env=None
-) -> MetaOrRattler:
+def render_rattler_recipe_to_dict(
+    recipe: Path, global_variants: rb.VariantConfig
+) -> list[dict[str, Any]]:
+    """
+    Given a package name, find the current recipe.yaml file, render it, and return
+    the rendered variants.
+    """
+    try:
+        # Parse YAML into Stage0Recipe
+        recipe_file: Path = Path(recipe) / "recipe.yaml"
+        local_variants_path: Path = Path(recipe) / "variants.yaml"
+
+        recipe_s0: rb.Stage0Recipe = rb.Stage0Recipe.from_file(recipe_file)
+
+        # merging variants
+
+        variants: rb.VariantConfig = global_variants
+
+        if local_variants_path.exists():
+            local_variants = rb.VariantConfig.from_file(local_variants_path)
+            variants = global_variants.merge(local_variants)
+
+        # rendering recipe
+        rendered_variants: list[rb.RenderedVariant] = recipe_s0.render(variants)
+
+        return [r.recipe.to_dict() for r in rendered_variants]
+    except Exception:
+        raise ValueError("Problem inspecting {0}".format(recipe))
+
+
+def load_meta_and_recipe_fast(recipe: RecipePath, env=None) -> MetaOrRattler:
     """
     Given a RecipePath, check whether the given package should be build with conda build
     or rattler. Returns a MetaOrRattler object containing the original RecipePath and either
@@ -667,11 +697,9 @@ def load_meta_and_recipe_fast(
     elif recipe.build_system == "rattler":
         # TODO (rb): is it possible to pass the global variants to the function
         # so we don't have to reload it constantly?
+        # as far as I no we have to reload it, otherwise the parallelisation calls pickle on it
         global_variants: rb.VariantConfig = load_rattler_build_global_variants()
-        rattler = [
-            r.recipe.to_dict()
-            for r in render_rattler_recipe(recipe.path, global_variants)
-        ]
+        rattler = render_rattler_recipe_to_dict(recipe.path, global_variants)
         return MetaOrRattler(path=recipe, meta=None, rattler=rattler)
     else:
         raise ValueError(

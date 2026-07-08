@@ -4,9 +4,8 @@ Construction and Manipulation of Package/Recipe Graphs
 
 import logging
 from collections import defaultdict
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Sequence
 from fnmatch import fnmatch
-from functools import partial
 from itertools import chain
 from pathlib import Path
 from token import ISTERMINAL
@@ -15,9 +14,9 @@ from typing import (
     Literal,
 )
 
-from conda_build.build import render_recipe
 import networkx as nx
 import rattler_build as rb
+from conda_build.build import render_recipe
 from regex import R
 
 from bioconda_utils.recipe import Recipe
@@ -71,7 +70,7 @@ def build(
 
     meta_rattler_data: list[utils.MetaOrRattler] = list(
         utils.parallel_iter(
-            partial(utils.load_meta_and_recipe_fast, global_variants=global_variants),
+            utils.load_meta_and_recipe_fast,
             recipes,
             "Loading Recipes",
         )

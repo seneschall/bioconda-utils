@@ -561,8 +561,11 @@ def build_recipes(
 
     for recipe, name in recipe_jobs:
         platform = utils.RepoData().native_platform()
-        if not force and do_not_consider_for_additional_platform(
-            recipe_folder, recipe, platform
+        # TODO (rb): implement this for rattler_build as well
+        if (
+            recipe.build_system != "rattler"
+            and not force
+            and do_not_consider_for_additional_platform(recipe_folder, recipe, platform)
         ):
             logger.info(
                 "BUILD SKIP: skipping %s for additional platform %s",
