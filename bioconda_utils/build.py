@@ -243,8 +243,14 @@ def build(
                     result = variant.run_build(
                         tool_config, channels=channels, output_dir=rattler_output_dir
                     )
-                    # add paths of built rattler packages to pkg_paths
-                    pkg_paths += result.packages
+
+                    # # check if path was predicted correctly
+                    # for pkg in result.packages:
+                    #     if pkg not in pkg_paths:
+                    #         raise ValueError(
+                    #             f"Path for package {pkg.as_posix()} was not found in pkg_paths."
+                    #         )
+                    # print(f"\n\n\n\n\npkg_paths = {pkg_paths}\n\n\n\n\n")
 
         logger.info(
             "BUILD SUCCESS %s", " ".join(os.path.basename(p) for p in pkg_paths)
@@ -584,6 +590,14 @@ def build_recipes(
             continue
 
         logger.info("Determining expected packages for %s", recipe.path.as_posix())
+
+        if docker_builder is not None:
+            rattler_output_dir: Path = Path(docker_builder.pkg_dir)
+        else:
+            subfolder: str = utils.RepoData.platform2subdir(platform)
+            conda_build_config = utils.load_conda_build_config(platform=subfolder)
+            rattler_output_dir: Path = Path(conda_build_config.output_folder)
+
         try:
             # When building with Docker, skip the expensive finalized render
             # on the host since Docker's conda-build will re-solve anyway.
@@ -602,15 +616,14 @@ def build_recipes(
                 finalize = True
             if not finalize and utils.recipe_requires_finalized_render(recipe):
                 finalize = True
-            if recipe.build_system == "conda":
-                pkg_paths: list[Path] = utils.get_package_paths(
-                    recipe,
-                    check_channels,
-                    force=force,
-                    finalize=finalize,
-                )
-            else:
-                pkg_paths: list[Path] = []
+            pkg_paths: list[Path] = utils.get_package_paths(
+                recipe,
+                check_channels,
+                force=force,
+                finalize=finalize,
+                rattler_output_dir=rattler_output_dir,
+                global_variants=global_variants,
+            )
         except utils.DivergentBuildsError as exc:
             logger.error(
                 "BUILD ERROR: packages with divergent build strings in repository "
@@ -641,13 +654,6 @@ def build_recipes(
         tool_config: rb.ToolConfiguration = rb.ToolConfiguration(
             skip_existing=skip_rattler, test_strategy="native", keep_build=False
         )
-
-        if docker_builder is not None:
-            rattler_output_dir: Path = Path(docker_builder.pkg_dir)
-        else:
-            subfolder: str = utils.RepoData.platform2subdir(platform)
-            conda_build_config = utils.load_conda_build_config(platform=subfolder)
-            rattler_output_dir: Path = Path(conda_build_config.output_folder)
 
         res = build(
             recipe=recipe,
