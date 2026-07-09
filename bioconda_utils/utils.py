@@ -1938,6 +1938,17 @@ def yaml_remove_invalid_chars(
     return valid_chars_re.sub("", text)
 
 
+def get_default_rattler_cache_dir_path() -> Path:
+    bioconda_utils_cache: Path = Path(platformdirs.user_cache_dir("bioconda-utils"))
+    return bioconda_utils_cache / "rattler_cache"
+
+
+def set_rattler_cache_to_dir(path: Path) -> None:
+    if not path.exists():
+        path.mkdir()
+    os.environ["RATTLER_CACHE_DIR"] = str(path)
+
+
 # Cache results to disk for one week.
 @disk_cache.memoize(expire=604800)
 def get_package_downloads(channel: str, package: str) -> int:
