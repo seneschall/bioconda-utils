@@ -1164,7 +1164,7 @@ def built_package_paths_conda_build(recipe: str) -> list[str]:
 _SOLVER_DEPENDENT_JINJA = re.compile(r"\{\{\s*(stdlib|compiler|pin_compatible)\s*\(")
 
 
-def recipe_requires_finalized_render(recipe):
+def recipe_requires_finalized_render(recipe: Path | str):
     """
     Return True if the recipe's rendered hash can depend on solver state and
     therefore must be rendered with ``finalize=True`` to match what conda-build
@@ -1174,7 +1174,7 @@ def recipe_requires_finalized_render(recipe):
     jinja functions, whose run_exports are only applied during a real solve.
     See https://github.com/bioconda/bioconda-utils/issues/1095.
     """
-    meta_path = os.path.join(recipe, "meta.yaml")
+    meta_path: Path = Path(recipe) / "meta.yaml"
     try:
         with open(meta_path, encoding="utf-8") as f:
             text = re.sub(r"#.*", "", f.read())
@@ -1183,7 +1183,7 @@ def recipe_requires_finalized_render(recipe):
     return bool(_SOLVER_DEPENDENT_JINJA.search(text))
 
 
-def _load_platform_metas(recipe, finalize=True):
+def _load_platform_metas(recipe: Path, finalize: bool = True):
     platform = RepoData.native_platform()
     config = load_conda_build_config(platform=platform)
     return platform, load_all_meta(recipe, config=config, finalize=finalize)
@@ -1194,7 +1194,7 @@ def _meta_subdir(meta):
     return "noarch" if meta.noarch or meta.noarch_python else meta.config.host_subdir
 
 
-def check_recipe_skippable(recipe, check_channels):
+def check_recipe_skippable(recipe: Path, check_channels: list[str]):
     """
     Return True if the same number of builds (per subdir) defined by the recipe
     are already in channel_packages.
@@ -1351,12 +1351,12 @@ def get_package_paths(
 
     # otherwise, buildsystem is conda-build:
     if not force:
-        if check_recipe_skippable(recipe, check_channels):
+        if check_recipe_skippable(recipe.path, check_channels):
             # NB: If we skip early here, we don't detect possible divergent builds.
             return []
     if not finalize:
         logger.debug("Using non-finalized render for %s (fast resolve)", recipe)
-    platform, metas = _load_platform_metas(recipe, finalize=finalize)
+    platform, metas = _load_platform_metas(recipe.path, finalize=finalize)
 
     # The recipe likely defined skip: True
     if not metas:
@@ -1943,10 +1943,21 @@ def get_default_rattler_cache_dir_path() -> Path:
     return bioconda_utils_cache / "rattler_cache"
 
 
-def set_rattler_cache_to_dir(path: Path) -> None:
+# TODO (rb): this way of setting and getting the current cache dir is very ugly and should be improved
+curr_rattler_cache_dir_path: Path = get_default_rattler_cache_dir_path()
+
+
+def get_current_rattler_cache_dir_path() -> Path:
+    return curr_rattler_cache_dir_path
+
+
+def set_rattler_cache_to_dir(
+    path: Path, curr_path: Path = curr_rattler_cache_dir_path
+) -> None:
     if not path.exists():
         path.mkdir()
     os.environ["RATTLER_CACHE_DIR"] = str(path)
+    curr_path = path
 
 
 # Cache results to disk for one week.

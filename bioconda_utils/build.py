@@ -9,6 +9,7 @@ from collections import defaultdict
 import itertools
 import logging
 import os
+import shutil
 
 from typing import Any, NamedTuple
 from bioconda_utils.skiplist import Skiplist
@@ -55,6 +56,19 @@ def conda_build_purge() -> None:
             "CLEANED UP PACKAGE CACHE (free space: %iMB).",
             utils.get_free_space(),
         )
+
+
+def rattler_build_purge(rattler_cache: Path, rattler_output_dir: Path) -> None:
+    """
+    Empties rattler's cache directories.
+    This includes only downloaded packages.
+    """
+    output_cache: Path = rattler_output_dir / "bld"
+    shutil.rmtree(output_cache)
+    output_cache.mkdir()
+    shutil.rmtree(rattler_cache)
+    rattler_cache.mkdir()
+    pass
 
 
 def build(
@@ -220,6 +234,7 @@ def build(
                     for config_file in utils.get_conda_build_config_files():
                         cmd += [config_file.arg, config_file.path]
                     cmd += [str(recipe.path / "meta.yaml")]
+                    # cmd += [str(recipe.path)]
                     with utils.Progress():
                         utils.run(cmd, mask=False, live=live_logs)
             elif recipe.build_system == "rattler":
@@ -696,6 +711,8 @@ def build_recipes(
         # TODO (rb): how can we purge the rattler-build cache?
         if not keep_old_work:
             conda_build_purge()
+            rattler_cache: Path = utils.get_current_rattler_cache_dir_path()
+            rattler_build_purge(rattler_cache, rattler_output_dir)
             # prune stopped containers
             if docker_builder is not None:
                 docker_utils.pruneStoppedContainers()
