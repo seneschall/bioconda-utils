@@ -21,6 +21,7 @@ import sys
 import warnings
 from collections import Counter, defaultdict, deque, namedtuple
 from collections.abc import Collection, Generator, Iterable, Sequence
+from dataclasses import dataclass
 from functools import partial
 from importlib.resources import as_file, files
 from itertools import chain, product, zip_longest
@@ -524,7 +525,8 @@ def load_all_meta(recipe: Path, config=None, finalize=True):
     return metas
 
 
-class MetaOrRattler(NamedTuple):
+@dataclass(slots=True)
+class MetaOrRattler:
     path: RecipePath
     meta: dict[str, Any] | None
     rattler: list[dict[str, Any]] | None
@@ -584,6 +586,36 @@ def render_rattler_recipe(
         raise ValueError("Problem inspecting {0}".format(recipe))
 
 
+def render_rattler_recipe_to_dict(
+    recipe: Path, global_variants: rb.VariantConfig
+) -> list[dict[str, Any]]:
+    """
+    Given a package name, find the current recipe.yaml file, render it, and return
+    the rendered variants.
+    """
+    try:
+        # Parse YAML into Stage0Recipe
+        recipe_file: Path = Path(recipe) / "recipe.yaml"
+        local_variants_path: Path = Path(recipe) / "variants.yaml"
+
+        recipe_s0: rb.Stage0Recipe = rb.Stage0Recipe.from_file(recipe_file)
+
+        # merging variants
+
+        variants: rb.VariantConfig = global_variants
+
+        if local_variants_path.exists():
+            local_variants = rb.VariantConfig.from_file(local_variants_path)
+            variants = global_variants.merge(local_variants)
+
+        # rendering recipe
+        rendered_variants: list[rb.RenderedVariant] = recipe_s0.render(variants)
+
+        return [r.recipe.to_dict() for r in rendered_variants]
+    except Exception:
+        raise ValueError("Problem inspecting {0}".format(recipe))
+
+
 def load_meta_and_recipe_fast(recipe: RecipePath, env=None) -> MetaOrRattler:
     """
     Given a RecipePath, check whether the given package should be build with conda build
@@ -597,11 +629,9 @@ def load_meta_and_recipe_fast(recipe: RecipePath, env=None) -> MetaOrRattler:
     elif recipe.build_system == "rattler":
         # TODO (rb): is it possible to pass the global variants to the function
         # so we don't have to reload it constantly?
+        # as far as I no we have to reload it, otherwise the parallelisation calls pickle on it
         global_variants: rb.VariantConfig = load_rattler_build_global_variants()
-        rattler: list[dict[str, Any]] = [
-            r.recipe.to_dict()
-            for r in render_rattler_recipe(recipe.path, global_variants)
-        ]
+        rattler = render_rattler_recipe_to_dict(recipe.path, global_variants)
         return MetaOrRattler(path=recipe, meta=None, rattler=rattler)
     else:
         raise ValueError(
@@ -1070,7 +1100,7 @@ def built_package_paths_conda_build(recipe: str) -> list[str]:
 _SOLVER_DEPENDENT_JINJA = re.compile(r"\{\{\s*(stdlib|compiler|pin_compatible)\s*\(")
 
 
-def recipe_requires_finalized_render(recipe):
+def recipe_requires_finalized_render(recipe: Path | str):
     """
     Return True if the recipe's rendered hash can depend on solver state and
     therefore must be rendered with ``finalize=True`` to match what conda-build
@@ -1080,7 +1110,7 @@ def recipe_requires_finalized_render(recipe):
     jinja functions, whose run_exports are only applied during a real solve.
     See https://github.com/bioconda/bioconda-utils/issues/1095.
     """
-    meta_path = os.path.join(recipe, "meta.yaml")
+    meta_path: Path = Path(recipe) / "meta.yaml"
     try:
         with open(meta_path, encoding="utf-8") as f:
             text = re.sub(r"#.*", "", f.read())
@@ -1089,7 +1119,7 @@ def recipe_requires_finalized_render(recipe):
     return bool(_SOLVER_DEPENDENT_JINJA.search(text))
 
 
-def _load_platform_metas(recipe, finalize=True):
+def _load_platform_metas(recipe: Path, finalize: bool = True):
     platform = RepoData.native_platform()
     config = load_conda_build_config(platform=platform)
     return platform, load_all_meta(recipe, config=config, finalize=finalize)
@@ -1100,7 +1130,7 @@ def _meta_subdir(meta):
     return "noarch" if meta.noarch or meta.noarch_python else meta.config.host_subdir
 
 
-def check_recipe_skippable(recipe, check_channels):
+def check_recipe_skippable(recipe: Path, check_channels: list[str]):
     """
     Return True if the same number of builds (per subdir) defined by the recipe
     are already in channel_packages.
@@ -1200,6 +1230,43 @@ def _filter_existing_packages(metas, check_channels):
     return new_metas, existing_metas, divergent_builds
 
 
+def get_rattler_package_paths(
+    recipe: RecipePath, rattler_output_dir: Path, global_variants: rb.VariantConfig
+) -> list[Path]:
+    result: list[Path] = []
+    # get rendered recipe
+    variants: list[rb.RenderedVariant] = render_rattler_recipe(
+        recipe.path, global_variants
+    )
+
+    for variant in variants:
+        pass
+        name: str = variant.recipe.package.name
+        version: str = variant.recipe.package.version
+        build_str: str = variant.recipe.build.string
+        noarch: Any | None = variant.recipe.build.noarch
+        target_platform: str | None = variant.recipe.used_variant.get("target_platform")
+        if not target_platform:
+            raise ValueError(
+                f"Couldn't find target platform for a variant of recipe: {recipe.path.as_posix()}"
+            )
+
+        # predict package file names
+        # can it also be tar.gz?
+        ext: str = "conda"
+        file_name: str = f"{name}-{version}-{build_str}.{ext}"
+
+        # predict directory
+        target_dir: Path = Path()
+        if noarch:
+            target_dir = rattler_output_dir / "noarch"
+        else:
+            target_dir = rattler_output_dir / target_platform
+        result.append(target_dir / file_name)
+
+    return result
+
+
 # TODO (rb): can this also be implemented for rattler-build?
 # for now in build.build we simply add the package paths of the packages
 # build with rattler-build **after** they have been built.
@@ -1208,14 +1275,24 @@ def get_package_paths(
     check_channels: list[str],
     force: bool = False,
     finalize: bool = True,
+    rattler_output_dir: Path | None = None,
+    global_variants: rb.VariantConfig | None = None,
 ) -> list[Path]:
+    if recipe.build_system == "rattler":
+        if rattler_output_dir is None or global_variants is None:
+            raise ValueError(
+                f"Both rattler_output_dir and global_variants must be set when calling get_package_paths on a rattler-recipe: {recipe.path.as_posix()}"
+            )
+        return get_rattler_package_paths(recipe, rattler_output_dir, global_variants)
+
+    # otherwise, buildsystem is conda-build:
     if not force:
-        if check_recipe_skippable(recipe, check_channels):
+        if check_recipe_skippable(recipe.path, check_channels):
             # NB: If we skip early here, we don't detect possible divergent builds.
             return []
     if not finalize:
         logger.debug("Using non-finalized render for %s (fast resolve)", recipe)
-    platform, metas = _load_platform_metas(recipe, finalize=finalize)
+    platform, metas = _load_platform_metas(recipe.path, finalize=finalize)
 
     # The recipe likely defined skip: True
     if not metas:
@@ -1795,6 +1872,28 @@ def yaml_remove_invalid_chars(
     E.g. we do not want them to contain carriage return chars or delete chars.
     """
     return valid_chars_re.sub("", text)
+
+
+def get_default_rattler_cache_dir_path() -> Path:
+    bioconda_utils_cache: Path = Path(platformdirs.user_cache_dir("bioconda-utils"))
+    return bioconda_utils_cache / "rattler_cache"
+
+
+# TODO (rb): this way of setting and getting the current cache dir is very ugly and should be improved
+curr_rattler_cache_dir_path: Path = get_default_rattler_cache_dir_path()
+
+
+def get_current_rattler_cache_dir_path() -> Path:
+    return curr_rattler_cache_dir_path
+
+
+def set_rattler_cache_to_dir(
+    path: Path, curr_path: Path = curr_rattler_cache_dir_path
+) -> None:
+    if not path.exists():
+        path.mkdir()
+    os.environ["RATTLER_CACHE_DIR"] = str(path)
+    curr_path = path
 
 
 # Cache results to disk for one week.

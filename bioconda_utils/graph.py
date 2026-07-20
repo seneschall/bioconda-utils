@@ -3,19 +3,21 @@ Construction and Manipulation of Package/Recipe Graphs
 """
 
 import logging
-
 from collections import defaultdict
+from collections.abc import Iterable, Sequence
 from fnmatch import fnmatch
 from itertools import chain
 from pathlib import Path
+from token import ISTERMINAL
 from typing import (
     Any,
     Literal,
 )
-from collections.abc import Iterable, Iterator, Sequence
 
 import networkx as nx
 import rattler_build as rb
+from conda_build.build import render_recipe
+from regex import R
 
 from bioconda_utils.recipe import Recipe
 from bioconda_utils.skiplist import Skiplist
@@ -63,8 +65,15 @@ def build(
     recipes: list[utils.RecipePath] = list(recipes)
     # TODO (rb): fix load meta fast so it returns the correct type
     # we have to replace this with a function that returns both
+    # global_variants load here and pass on
+    global_variants: rb.VariantConfig = utils.load_rattler_build_global_variants()
+
     meta_rattler_data: list[utils.MetaOrRattler] = list(
-        utils.parallel_iter(utils.load_meta_and_recipe_fast, recipes, "Loading Recipes")
+        utils.parallel_iter(
+            utils.load_meta_and_recipe_fast,
+            recipes,
+            "Loading Recipes",
+        )
     )
 
     # name2recipe is meta.yaml's / recipe.yaml's package:name mapped to the recipe path.
@@ -75,36 +84,12 @@ def build(
     name2recipe: defaultdict[str, set[utils.RecipePath]] = defaultdict(set)
 
     for rendered_recipe in meta_rattler_data:
-        name: str = ""
-        if rendered_recipe.meta is not None:
-            # i.e. buildsystem is conda-build
-            name: str = rendered_recipe.meta["package"]["name"]
-        elif rendered_recipe.rattler is not None:
-            # i.e. build system is rattler-build
-            name: str = rendered_recipe.rattler[0]["package"]["name"]
-        else:
-            raise ValueError(
-                f"No meta or rattler-recipe found for: {rendered_recipe.path.path.as_posix()}"
-            )
+        name: str = rendered_recipe.get_package_name()
+
         if blacklist is None or not blacklist.is_skiplisted(rendered_recipe.path.path):
             name2recipe[name].update([rendered_recipe.path])
 
-    def get_deps(
-        meta: dict[str, Any], sec: str, build_sys: Literal["conda", "rattler"]
-    ) -> list[str]:
-        reqs = meta.get("requirements")
-        if not reqs:
-            return []
-        deps = reqs.get(sec)
-        if not deps:
-            return []
-        if build_sys == "conda":
-            return [dep.split()[0] for dep in deps if dep]
-        else:
-            print(f"---\n\ndeps:\n{deps}\n\n---")
-            return deps
-
-    def get_inner_deps(dependencies: Iterable[str]) -> Iterator[str]:
+    def get_inner_deps(dependencies: Iterable[str]) -> Iterable[str]:
         dependencies = list(dependencies)
         for dep in dependencies:
             if dep in name2recipe or not restrict:
@@ -114,43 +99,17 @@ def build(
     dag: nx.DiGraph = nx.DiGraph()
     dag.add_nodes_from(name2recipe.keys())
     for rendered_recipe in meta_rattler_data:
-        if rendered_recipe.meta is not None:
-            # i.e. buildsystem is conda-build
-            meta: dict[str, Any] = rendered_recipe.meta
-            name: str = meta["package"]["name"]
-            dag.add_edges_from(
-                (dep, name)
-                for dep in set(
-                    chain(
-                        get_inner_deps(get_deps(meta, "build", "conda")),
-                        get_inner_deps(get_deps(meta, "host", "conda")),
-                        get_inner_deps(get_deps(meta, "run", "conda")),
-                    )
+        name: str = rendered_recipe.get_package_name()
+        dag.add_edges_from(
+            (dep, name)
+            for dep in set(
+                chain(
+                    get_inner_deps(rendered_recipe.get_dependencies("build")),
+                    get_inner_deps(rendered_recipe.get_dependencies("host")),
+                    get_inner_deps(rendered_recipe.get_dependencies("run")),
                 )
             )
-        elif rendered_recipe.rattler is not None:
-            # i.e. build system is rattler-build
-            rendered_variants: list[dict[str, Any]] = rendered_recipe.rattler
-            name: str = rendered_variants[0]["package"]["name"]
-
-            print(f"\n\n\n\npackage: {name}\n\n\n\n\n")
-
-            for v in rendered_variants:
-                dag.add_edges_from(
-                    (dep, name)
-                    for dep in set(
-                        chain(
-                            get_inner_deps(get_deps(v, "build", "rattler")),
-                            get_inner_deps(get_deps(v, "host", "rattler")),
-                            get_inner_deps(get_deps(v, "run", "rattler")),
-                        )
-                    )
-                )
-        else:
-            raise ValueError(
-                f"No meta or rattler-recipe found for: {rendered_recipe.path.path.as_posix()}"
-            )
-
+        )
     return dag, name2recipe
 
 

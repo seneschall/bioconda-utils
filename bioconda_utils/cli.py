@@ -658,6 +658,13 @@ def build(
 ):
     config = Path(config)
     cfg = utils.load_config(config)
+
+    # setting the rattler cache to custom path
+    # TODO (rb): should this be exposed to the user?
+    # how should this be handled for docker containers?
+    rattler_cache_dir: Path = utils.get_default_rattler_cache_dir_path()
+    utils.set_rattler_cache_to_dir(rattler_cache_dir)
+
     # TODO: should we also load the rattler variants config here?
     # currently it is loaded by utils.load_rattler_build_global_variants
     # using a semi-hardcoded path
