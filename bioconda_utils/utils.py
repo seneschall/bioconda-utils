@@ -527,7 +527,7 @@ def load_all_meta(recipe: Path, config=None, finalize=True):
 class MetaOrRattler(NamedTuple):
     path: RecipePath
     meta: dict[str, Any] | None
-    rattler: list[rb.RenderedVariant] | None
+    rattler: list[dict[str, Any]] | None
 
 
 def load_meta_fast(recipe: Path, env=None) -> tuple[dict[str, Any], Path]:
@@ -598,7 +598,10 @@ def load_meta_and_recipe_fast(recipe: RecipePath, env=None) -> MetaOrRattler:
         # TODO (rb): is it possible to pass the global variants to the function
         # so we don't have to reload it constantly?
         global_variants: rb.VariantConfig = load_rattler_build_global_variants()
-        rattler = render_rattler_recipe(recipe.path, global_variants)
+        rattler: list[dict[str, Any]] = [
+            r.recipe.to_dict()
+            for r in render_rattler_recipe(recipe.path, global_variants)
+        ]
         return MetaOrRattler(path=recipe, meta=None, rattler=rattler)
     else:
         raise ValueError(
@@ -623,15 +626,19 @@ def _filter_config(config_path: Path) -> str:
     return filtered
 
 
-def load_rattler_build_global_variants() -> rb.VariantConfig:
+def get_rattler_build_global_variants_paths() -> list[Path]:
     bioconda_utils_bin = shutil.which("bioconda-utils")
     if bioconda_utils_bin is None:
         raise FileNotFoundError("Unable to find bioconda-utils on PATH")
     env_root = PurePath(bioconda_utils_bin).parents[1]
-    paths: list[Path] = [
+    return [
         Path(env_root) / "bioconda_utils-conda_build_config.yaml",
         Path(__file__).resolve().parent / "bioconda_utils-conda_build_config.yaml",
     ]
+
+
+def load_rattler_build_global_variants() -> rb.VariantConfig:
+    paths: list[Path] = get_rattler_build_global_variants_paths()
 
     filtered_yaml: str = ""
 
