@@ -598,7 +598,7 @@ class MetaOrRattler:
             )
 
 
-def load_meta_fast(recipe: Path, env=None) -> tuple[dict[str, Any], Path]:
+def load_meta_fast(recipe: Path | str, env=None) -> tuple[dict[str, Any], Path]:
     """
     Given a package name, find the current meta.yaml file, parse it, and return
     the dict.
@@ -610,6 +610,7 @@ def load_meta_fast(recipe: Path, env=None) -> tuple[dict[str, Any], Path]:
     Returns:
       Tuple of original recipe string and rendered dict
     """
+    recipe = Path(recipe)
     if not env:
         env = {}
 
@@ -1387,7 +1388,7 @@ def get_package_paths(
     return [Path(p) for p in package_paths]
 
 
-def validate_config(config: Path | dict[str, Any]):
+def validate_config(config: Path | str | dict[str, Any]):
     """
     Validate config against schema
 
@@ -1409,7 +1410,7 @@ def validate_config(config: Path | dict[str, Any]):
     validate(config, schema)
 
 
-def load_config(path: Path | str) -> dict[str, Any]:
+def load_config(path: Path | str | dict[str, Any]) -> dict[str, Any]:
     """
     Parses config file, building paths to relevant blacklists
 
@@ -1418,7 +1419,6 @@ def load_config(path: Path | str) -> dict[str, Any]:
     path : str
         Path to YAML config file
     """
-    path = Path(path)
     validate_config(path)
 
     if isinstance(path, dict):

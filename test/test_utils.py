@@ -7,7 +7,7 @@ import shutil
 import subprocess as sp
 import sys
 import tempfile
-from typing import Generator
+from typing import Any, Generator
 import uuid
 from pathlib import Path
 from textwrap import dedent
@@ -187,14 +187,14 @@ def multi_build(request, recipes_fixture, config_fixture):
         "within docker" if docker_builder else "locally",
     )
     recipe_folder: Path = Path(recipes_fixture.basedir)
-    config_path: Path = Path(config_fixture)
+    config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
         utils.RecipePath(path=p, build_system="conda")
         for p in recipes_fixture.recipe_dirnames
     ]
     build.build_recipes(
         recipe_folder,
-        config_path,
+        config,
         recipes,
         docker_builder=docker_builder,
         mulled_test=mulled_test,
@@ -229,14 +229,14 @@ def multi_build_exclude(request, recipes_fixture, config_fixture):
         "within docker" if docker_builder else "locally",
     )
     recipe_folder: Path = Path(recipes_fixture.basedir)
-    config_path: Path = Path(config_fixture)
+    config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
         utils.RecipePath(path=p, build_system="conda")
         for p in recipes_fixture.recipe_dirnames
     ]
     build.build_recipes(
         recipe_folder,
-        config_path,
+        config,
         recipes,
         docker_builder=docker_builder,
         mulled_test=mulled_test,
@@ -468,14 +468,14 @@ def test_docker_build_fails(recipes_fixture, config_fixture):
     )
     assert docker_builder.build_script_template == "exit 1"
     recipe_folder: Path = Path(recipes_fixture.basedir)
-    config_path: Path = Path(config_fixture)
+    config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
         utils.RecipePath(path=p, build_system="conda")
         for p in recipes_fixture.recipe_dirnames
     ]
     result = build.build_recipes(
         recipe_folder,
-        config_path,
+        config,
         recipes,
         docker_builder=docker_builder,
         mulled_test=True,
@@ -557,13 +557,13 @@ def test_conda_as_dep(config_fixture, mulled_test):
     )
     r.write_recipes()
     recipe_folder: Path = Path(r.basedir)
-    config_path: Path = Path(config_fixture)
+    config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
         utils.RecipePath(path=p, build_system="conda") for p in r.recipe_dirnames
     ]
     build_result = build.build_recipes(
         recipe_folder,
-        config_path,
+        config,
         recipes,
         force=False,
         docker_builder=docker_builder,
@@ -999,14 +999,14 @@ def test_skip_dependencies(config_fixture):
             ensure_missing(pkg)
 
     recipe_folder: Path = Path(r.basedir)
-    config_path: Path = Path(config_fixture)
+    config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
         utils.RecipePath(path=p, build_system="conda") for p in r.recipe_dirnames
     ]
 
     build.build_recipes(
         recipe_folder,
-        config_path,
+        config,
         recipes,
         force=False,
         mulled_test=False,
@@ -1027,7 +1027,7 @@ def test_skip_dependencies(config_fixture):
 class TestSubdags:
     def _build(self, recipes_fixture, config_fixture, n_workers, worker_offset):
         recipe_folder: Path = Path(recipes_fixture.basedir)
-        config_path: Path = Path(config_fixture)
+        config: dict[str, Any] = config_fixture
         recipes: list[utils.RecipePath] = [
             utils.RecipePath(path=p, build_system="conda")
             for p in recipes_fixture.recipe_dirnames
@@ -1035,7 +1035,7 @@ class TestSubdags:
 
         build.build_recipes(
             recipe_folder,
-            config_path,
+            config,
             recipes,
             n_workers=n_workers,
             worker_offset=worker_offset,
@@ -1171,14 +1171,14 @@ def test_bioconda_pins(caplog, config_fixture):
     r.write_recipes()
 
     recipe_folder: Path = Path(r.basedir)
-    config_path: Path = Path(config_fixture)
+    config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
         utils.RecipePath(path=p, build_system="conda") for p in r.recipe_dirnames
     ]
 
     build_result = build.build_recipes(
         recipe_folder,
-        config_path,
+        config,
         recipes,
         force=False,
         mulled_test=False,
@@ -1337,14 +1337,14 @@ def test_cb3_outputs(config_fixture):
     r.recipe_dirs["one"]
 
     recipe_folder: Path = Path(r.basedir)
-    config_path: Path = Path(config_fixture)
+    config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
         utils.RecipePath(path=p, build_system="conda") for p in r.recipe_dirnames
     ]
 
     build_result = build.build_recipes(
         recipe_folder,
-        config_path,
+        config,
         recipes,
         force=False,
         mulled_test=False,
@@ -1379,14 +1379,14 @@ def test_compiler(config_fixture):
     r.write_recipes()
 
     recipe_folder: Path = Path(r.basedir)
-    config_path: Path = Path(config_fixture)
+    config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
         utils.RecipePath(path=p, build_system="conda") for p in r.recipe_dirnames
     ]
 
     build_result = build.build_recipes(
         recipe_folder,
-        config_path,
+        config,
         recipes,
         force=False,
         mulled_test=False,
@@ -1458,14 +1458,14 @@ def test_nested_recipes(config_fixture):
     r.write_recipes()
 
     recipe_folder: Path = Path(r.basedir)
-    config_path: Path = Path(config_fixture)
+    config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
         utils.RecipePath(path=p, build_system="conda") for p in r.recipe_dirnames
     ]
 
     build_results = build.build_recipes(
         recipe_folder,
-        config_path,
+        config,
         recipes,
         force=False,
         mulled_test=False,
@@ -1514,14 +1514,14 @@ def test_conda_build_sysroot(config_fixture):
     r.write_recipes()
 
     recipe_folder: Path = Path(r.basedir)
-    config_path: Path = Path(config_fixture)
+    config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
         utils.RecipePath(path=p, build_system="conda") for p in r.recipe_dirnames
     ]
 
     build_result = build.build_recipes(
         recipe_folder,
-        config_path,
+        config,
         recipes,
         force=False,
         mulled_test=False,
@@ -1569,11 +1569,11 @@ def test_skip_unsatisfiable_pin_compatible(config_fixture):
     r.write_recipes()
 
     recipe_folder: Path = Path(r.basedir)
-    config_path: Path = Path(config_fixture)
+    config: dict[str, Any] = config_fixture
 
     build_result = build.build_recipes(
         recipe_folder,
-        config_path,
+        config,
         [utils.RecipePath(path=Path(r.recipe_dirs["one"]), build_system="conda")],
         force=False,
         mulled_test=False,
@@ -1585,7 +1585,7 @@ def test_skip_unsatisfiable_pin_compatible(config_fixture):
 @pytest.mark.parametrize("mulled_test", PARAMS, ids=IDS)
 @pytest.mark.parametrize("pkg_format", ["1", "2"])
 def test_pkg_test_conda_package_format(
-    config_path_fixture, pkg_format, mulled_test, tmp_path, monkeypatch
+    config_fixture, pkg_format, mulled_test, tmp_path, monkeypatch
 ):
     """
     Running a mulled-build test with .tar.bz2/.conda package formats
@@ -1643,14 +1643,14 @@ def test_pkg_test_conda_package_format(
         )
 
     recipe_folder: Path = Path(r.basedir)
-    config_path: Path = config_path_fixture
+    config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
         utils.RecipePath(path=p, build_system="conda") for p in r.recipe_dirnames
     ]
 
     build_result = build.build_recipes(
         recipe_folder,
-        config_path,
+        config,
         recipes,
         docker_builder=docker_builder,
         mulled_test=mulled_test,
@@ -1664,7 +1664,7 @@ def test_pkg_test_conda_package_format(
             ensure_missing(pkg_file)
 
 
-def test_rattler_recipe(config_path_fixture):
+def test_rattler_recipe(config_fixture):
     r = Recipes(
         """
         one:
@@ -1698,7 +1698,7 @@ def test_rattler_recipe(config_path_fixture):
     docker_builder = None
 
     recipe_folder: Path = Path(r.basedir)
-    config_path: Path = config_path_fixture
+    config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
         utils.RecipePath(path=Path(p), build_system="rattler")
         for p in r.recipe_dirnames
@@ -1706,7 +1706,7 @@ def test_rattler_recipe(config_path_fixture):
 
     build_result = build.build_recipes(
         recipe_folder,
-        config_path,
+        config,
         recipes,
         docker_builder=docker_builder,
         mulled_test=False,

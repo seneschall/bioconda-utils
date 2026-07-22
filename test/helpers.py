@@ -112,11 +112,11 @@ class Recipes:
             for key, value in recipe.items():
                 with open(os.path.join(rdir, key), "w") as fout:
                     fout.write(value)
-        self.basedir = basedir
+        self.basedir = Path(basedir)
 
     @property
-    def recipe_dirnames(self):
-        return list(self.recipe_dirs.values())
+    def recipe_dirnames(self) -> list[Path]:
+        return [Path(p) for p in list(self.recipe_dirs.values())]
 
 
 def get_rattler_params(
