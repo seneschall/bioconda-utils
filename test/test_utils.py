@@ -554,7 +554,6 @@ def test_conda_as_dep(config_fixture, mulled_test):
         recipe_folder,
         config_path,
         recipes,
-        testonly=False,
         force=False,
         docker_builder=docker_builder,
         mulled_test=mulled_test,
@@ -995,7 +994,6 @@ def test_skip_dependencies(config_fixture):
         recipe_folder,
         config_path,
         recipes,
-        testonly=False,
         force=False,
         mulled_test=False,
     )
@@ -1166,7 +1164,6 @@ def test_bioconda_pins(caplog, config_fixture):
         recipe_folder,
         config_path,
         recipes,
-        testonly=False,
         force=False,
         mulled_test=False,
     )
@@ -1333,7 +1330,6 @@ def test_cb3_outputs(config_fixture):
         recipe_folder,
         config_path,
         recipes,
-        testonly=False,
         force=False,
         mulled_test=False,
     )
@@ -1376,7 +1372,6 @@ def test_compiler(config_fixture):
         recipe_folder,
         config_path,
         recipes,
-        testonly=False,
         force=False,
         mulled_test=False,
     )
@@ -1456,7 +1451,6 @@ def test_nested_recipes(config_fixture):
         recipe_folder,
         config_path,
         recipes,
-        testonly=False,
         force=False,
         mulled_test=False,
     )
@@ -1513,7 +1507,6 @@ def test_conda_build_sysroot(config_fixture):
         recipe_folder,
         config_path,
         recipes,
-        testonly=False,
         force=False,
         mulled_test=False,
     )
@@ -1566,7 +1559,6 @@ def test_skip_unsatisfiable_pin_compatible(config_fixture):
         recipe_folder,
         config_path,
         [utils.RecipePath(path=Path(r.recipe_dirs["one"]), build_system="conda")],
-        testonly=False,
         force=False,
         mulled_test=False,
     )

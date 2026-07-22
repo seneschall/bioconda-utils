@@ -79,7 +79,6 @@ def build(
     rattler_output_dir: Path,
     force: bool,
     pkg_paths: list[Path] | None = None,
-    testonly: bool = False,
     mulled_test: bool = True,
     channels: list[str] | None = None,
     docker_builder: docker_utils.RecipeBuilder | None = None,
@@ -99,7 +98,6 @@ def build(
     Arguments:
       recipe: Path to recipe
       pkg_paths: List of paths to expected packages
-      testonly: Only run the tests described in the meta.yaml
       mulled_test: Run tests in minimal docker container
       channels: Channels to include via the ``--channel`` argument to
         conda-build. Higher priority channels should come first.
@@ -155,11 +153,7 @@ def build(
     rattler_args: list[str] = []
 
     if recipe.build_system == "conda":
-        args = ["--override-channels"]
-        if testonly:
-            args += ["--test"]
-        else:
-            args += ["--no-anaconda-upload"]
+        args = ["--override-channels", "--no-anaconda-upload"]
 
         channels_to_use = ["local"] + [c for c in (channels or []) if c != "local"]
         for channel in channels_to_use:
@@ -216,7 +210,6 @@ def build(
                 build_args=" ".join(args),
                 rattler_args=" ".join(rattler_args),
                 env=whitelisted_env,
-                testonly=testonly,
                 build_system=recipe.build_system,
                 noarch=is_noarch,
                 live_logs=live_logs,
@@ -480,7 +473,6 @@ def build_recipes(
     config_path: Path,
     recipes: list[utils.RecipePath],
     mulled_test: bool = True,
-    testonly: bool = False,
     force: bool = False,
     docker_builder: docker_utils.RecipeBuilder | None = None,
     label: str | None = None,
@@ -511,7 +503,6 @@ def build_recipes(
         matching the glob will still be filtered out by any blacklists
         specified in the config.
       mulled_test: If true, test the package in a minimal container.
-      testonly: If true, only run test.
       force: If true, build the recipe even though it would otherwise be filtered out.
       docker_builder: If specified, use to build all recipes
       label: If specified, use to label uploaded packages on anaconda. Default is "main" label.
@@ -697,7 +688,6 @@ def build_recipes(
             render_config=render_config,
             rattler_output_dir=rattler_output_dir,
             pkg_paths=pkg_paths,
-            testonly=testonly,
             mulled_test=mulled_test,
             channels=config["channels"],
             docker_builder=docker_builder,
@@ -717,15 +707,14 @@ def build_recipes(
                 skip_dependent[pkg].append(recipe)
         else:
             built_recipes.append(recipe)
-            if not testonly:
-                if anaconda_upload:
-                    for pkg in pkg_paths:
-                        if not upload.anaconda_upload(pkg, label=label):
-                            failed_uploads.append(pkg)
-                if mulled_upload_target:
-                    for img in res.mulled_images or []:
-                        upload.mulled_upload(img, mulled_upload_target)
-                        docker_utils.purgeImage(mulled_upload_target, img)
+            if anaconda_upload:
+                for pkg in pkg_paths:
+                    if not upload.anaconda_upload(pkg, label=label):
+                        failed_uploads.append(pkg)
+            if mulled_upload_target:
+                for img in res.mulled_images or []:
+                    upload.mulled_upload(img, mulled_upload_target)
+                    docker_utils.purgeImage(mulled_upload_target, img)
 
         # remove traces of the build
         # TODO (rb): how can we purge the rattler-build cache?

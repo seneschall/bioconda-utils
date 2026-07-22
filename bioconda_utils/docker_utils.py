@@ -159,7 +159,7 @@ done
 # The actual building...
 # we explicitly point to the meta.yaml, in order to keep
 # conda-build from building all subdirectories
-rattler-build {self.build_or_test} -c file://{self.container_staging} {self.rattler_build_args} --recipe {self.container_recipe}/recipe.yaml --output-dir {self.container_staging} 2>&1
+rattler-build build -c file://{self.container_staging} {self.rattler_build_args} --recipe {self.container_recipe}/recipe.yaml --output-dir {self.container_staging} 2>&1
 
 # copy all built packages to the staging area
 find /opt/conda/conda-bld \
@@ -321,10 +321,6 @@ class RecipeBuilder:
 
         self.container_recipe = container_recipe
         self.container_staging = container_staging
-
-        # determines whether to call `rattler-build build` or `rattler-build test`
-        # should be set depending of the value of `testonly`
-        self.build_or_test: Literal["build", "test"] = "build"
 
         conda_build_config = utils.load_conda_build_config()
         # Identify conda-bld directory on the host.
@@ -529,9 +525,6 @@ class RecipeBuilder:
                         f"--variant-config {quote(variant.as_posix())}"
                     )
             self.rattler_build_args = " ".join(build_args_list)
-
-            if testonly:
-                self.build_or_test = "test"
 
         # Write build script to tempfile
         build_dir = os.path.realpath(tempfile.mkdtemp())

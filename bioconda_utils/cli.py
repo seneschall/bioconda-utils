@@ -479,7 +479,7 @@ def do_lint(
      include uncommitted changes). All recipes modified within this range will
      be built if not present in the channel.""",
 )
-@arg("--testonly", help="Test packages instead of building")
+@arg("--testonly", help="Test packages instead of building. (Deprecated)")
 @arg(
     "--force",
     help="""Force building the recipe even if it already exists in the
@@ -656,6 +656,14 @@ def build(
     exclude=None,
     subdag_depth=None,
 ):
+    if testonly:
+        # testonly calls `conda-build --test` but expects it to work when pointing
+        # to a recipe with a `meta.yaml`. However, according to `conda-build` docs:
+        # "RECIPE_PATH argument must be a path to built package file".
+        # `rattler-build test` also expects an already built package.
+        logger.error("--testonly is deprecated. Rerun without this flag.")
+        sys.exit(1)
+
     config = Path(config)
     cfg = utils.load_config(config)
 
@@ -724,7 +732,6 @@ def build(
         recipe_folder,
         config,
         recipes,
-        testonly=testonly,
         force=force,
         mulled_test=mulled_test,
         docker_builder=docker_builder,
