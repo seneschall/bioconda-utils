@@ -7,6 +7,7 @@ import shutil
 import subprocess as sp
 import sys
 import tempfile
+from typing import Generator
 import uuid
 from pathlib import Path
 from textwrap import dedent
@@ -114,6 +115,13 @@ def config_fixture():
     yield config
 
 
+@pytest.fixture(scope="module")
+def config_path_fixture() -> Generator[Path]:
+    """Returns config path"""
+    config: Path = Path(__file__).parent / "test-config.yaml"
+    yield config
+
+
 @pytest.fixture(scope="function", params=PARAMS, ids=IDS)
 def single_build(request, recipes_fixture):
     """
@@ -147,6 +155,7 @@ def single_build(request, recipes_fixture):
         tool_config=tool_config,
         render_config=render_config,
         rattler_output_dir=rattler_output_dir,
+        force=True,
         pkg_paths=pkg_paths,
         docker_builder=docker_builder,
         mulled_test=mulled_test,
@@ -282,6 +291,7 @@ def single_upload(request):
         tool_config=tool_config,
         render_config=render_config,
         rattler_output_dir=rattler_output_dir,
+        force=True,
         pkg_paths=pkg_paths,
         docker_builder=None,
         mulled_test=False,
@@ -372,6 +382,7 @@ def test_single_build_pkg_dir(recipes_fixture):
         tool_config=tool_config,
         render_config=render_config,
         rattler_output_dir=rattler_output_dir,
+        force=True,
         pkg_paths=pkg_paths,
         docker_builder=docker_builder,
         mulled_test=mulled_test,
@@ -848,6 +859,7 @@ def test_rendering_sandboxing():
                 tool_config=tool_config,
                 render_config=render_config,
                 rattler_output_dir=rattler_output_dir,
+                force=False,
                 pkg_paths=pkg_paths,
                 mulled_test=False,
                 raise_error=True,
@@ -877,6 +889,7 @@ def test_rendering_sandboxing():
                 tool_config=tool_config,
                 render_config=render_config,
                 rattler_output_dir=rattler_output_dir,
+                force=False,
                 pkg_paths=pkg_paths,
                 mulled_test=False,
             )
@@ -936,6 +949,7 @@ def test_env_sandboxing():
             tool_config=tool_config,
             render_config=render_config,
             rattler_output_dir=rattler_output_dir,
+            force=False,
             pkg_paths=pkg_paths,
             mulled_test=False,
         )
@@ -1062,6 +1076,7 @@ def test_build_empty_extra_container():
         global_variants=global_variants,
         tool_config=tool_config,
         render_config=render_config,
+        force=False,
         rattler_output_dir=rattler_output_dir,
         pkg_paths=pkg_paths,
         mulled_test=True,
@@ -1122,6 +1137,7 @@ def test_build_container_no_default_gcc(tmpdir):
         tool_config=tool_config,
         render_config=render_config,
         rattler_output_dir=rattler_output_dir,
+        force=False,
         pkg_paths=pkg_paths,
         docker_builder=docker_builder,
         mulled_test=False,
@@ -1569,7 +1585,7 @@ def test_skip_unsatisfiable_pin_compatible(config_fixture):
 @pytest.mark.parametrize("mulled_test", PARAMS, ids=IDS)
 @pytest.mark.parametrize("pkg_format", ["1", "2"])
 def test_pkg_test_conda_package_format(
-    config_fixture, pkg_format, mulled_test, tmp_path, monkeypatch
+    config_path_fixture, pkg_format, mulled_test, tmp_path, monkeypatch
 ):
     """
     Running a mulled-build test with .tar.bz2/.conda package formats
@@ -1627,7 +1643,7 @@ def test_pkg_test_conda_package_format(
         )
 
     recipe_folder: Path = Path(r.basedir)
-    config_path: Path = Path(config_fixture)
+    config_path: Path = config_path_fixture
     recipes: list[utils.RecipePath] = [
         utils.RecipePath(path=p, build_system="conda") for p in r.recipe_dirnames
     ]
@@ -1646,6 +1662,61 @@ def test_pkg_test_conda_package_format(
             assert pkg_file.endswith({"1": ".tar.bz2", "2": ".conda"}[pkg_format])
             assert os.path.exists(pkg_file)
             ensure_missing(pkg_file)
+
+
+def test_rattler_recipe(config_path_fixture):
+    r = Recipes(
+        """
+        one:
+          recipe.yaml: |
+            context:
+              version: "1.0.0"
+
+            package:
+              name: hello-world
+              version: ${{ version }}
+
+            build:
+              number: 0
+              script:
+                - mkdir -p $PREFIX/bin
+                - echo '#!/bin/bash' > $PREFIX/bin/hello
+                - echo 'echo "Hello, World!"' >> $PREFIX/bin/hello
+                - chmod +x $PREFIX/bin/hello
+
+            tests:
+              - script:
+                  - hello
+
+            about:
+              summary: A simple hello world package
+              license: MIT
+        """,
+        from_string=True,
+    )
+    r.write_recipes()
+    docker_builder = None
+
+    recipe_folder: Path = Path(r.basedir)
+    config_path: Path = config_path_fixture
+    recipes: list[utils.RecipePath] = [
+        utils.RecipePath(path=Path(p), build_system="rattler")
+        for p in r.recipe_dirnames
+    ]
+
+    build_result = build.build_recipes(
+        recipe_folder,
+        config_path,
+        recipes,
+        docker_builder=docker_builder,
+        mulled_test=False,
+    )
+    assert build_result
+
+    # for recipe_dir in r.recipe_dirnames:
+    #     for pkg_file in utils.built_package_paths_conda_build(recipe_dir):
+    #         assert os.path.exists(pkg_file)
+    #         ensure_missing(pkg_file)
 
 
 def test_validate_config_smoke():
