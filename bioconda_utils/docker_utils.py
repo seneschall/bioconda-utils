@@ -470,7 +470,6 @@ class RecipeBuilder:
         build_args: str,
         rattler_args: str,
         env: dict[str, str],
-        testonly: bool,
         build_system: Literal["conda", "rattler"],
         noarch: bool = False,
         live_logs: bool = True,

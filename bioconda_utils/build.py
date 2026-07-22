@@ -145,8 +145,6 @@ def build(
 
     logger.info("BUILD START %s", recipe.path.as_posix())
 
-    logger.debug("Build and Channel Args: %s", rattler_args)
-
     use_base_image = None
 
     args: list[str] = []
@@ -158,6 +156,8 @@ def build(
         channels_to_use = ["local"] + [c for c in (channels or []) if c != "local"]
         for channel in channels_to_use:
             args += ["-c", channel]
+
+        logger.debug("Build and Channel Args: %s", args)
 
         # Even though there may be variants of the recipe that will be built, we
         # will only be checking attributes that are independent of variants (pkg
@@ -171,7 +171,10 @@ def build(
         use_base_image = meta.get_value("extra/container", {}).get(
             "extended-base", False
         )
-    else:  # i.e. recipe. build_system == "rattler"
+    elif recipe.build_system == "rattler" and docker_builder is not None:
+        # We only need the rattler_args when building with docker_builder. When building without
+        # docker we use py-rattler-build's bindings directly in the code.
+
         # TODO (rb): is there a more elegant way to do this?
         rendered_recipe: rb.RenderedVariant = utils.render_rattler_recipe(
             recipe.path, utils.load_rattler_build_global_variants()
@@ -187,7 +190,9 @@ def build(
             rattler_args += ['--skip-existing "all"']
         channels_to_use = ["local"] + [c for c in (channels or []) if c != "local"]
         for channel in channels_to_use:
-            args += ["-c", channel]
+            rattler_args += ["-c", channel]
+
+        logger.debug("Build and Channel Args: %s", rattler_args)
     if use_base_image:
         base_image = "quay.io/bioconda/base-glibc-debian-bash:3.1"
     else:
@@ -640,7 +645,7 @@ def build_recipes(
             finalize = docker_builder is None or not fast_resolve
             if not finalize and utils.RepoData.native_platform() == "linux":
                 finalize = True
-            if not finalize and utils.recipe_requires_finalized_render(recipe):
+            if not finalize and utils.recipe_requires_finalized_render(recipe.path):
                 finalize = True
             pkg_paths: list[Path] = utils.get_package_paths(
                 recipe,
@@ -687,6 +692,7 @@ def build_recipes(
             tool_config=tool_config,
             render_config=render_config,
             rattler_output_dir=rattler_output_dir,
+            force=force,
             pkg_paths=pkg_paths,
             mulled_test=mulled_test,
             channels=config["channels"],
