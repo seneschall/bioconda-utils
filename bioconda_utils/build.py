@@ -15,7 +15,7 @@ from typing import Any, NamedTuple
 from bioconda_utils.skiplist import Skiplist
 from bioconda_utils.build_failure import BuildFailureRecord
 
-from conda.exports import UnsatisfiableError
+from conda.exceptions import UnsatisfiableError
 from conda_build.exceptions import DependencyNeedsBuildingError
 import networkx as nx
 import rattler_build as rb
@@ -247,7 +247,7 @@ def build(
                 # - Also pass filtered env to run()
                 # - Point conda-build to meta.yaml, to avoid building subdirs
                 with utils.sandboxed_env(whitelisted_env):
-                    cmd = conda_build_cmd + rattler_args
+                    cmd = conda_build_cmd + args
                     for config_file in utils.get_conda_build_config_files():
                         cmd += [config_file.arg, config_file.path]
                     cmd += [str(recipe.path / "meta.yaml")]
