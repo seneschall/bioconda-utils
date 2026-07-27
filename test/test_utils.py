@@ -123,7 +123,7 @@ def config_path_fixture() -> Generator[Path]:
 
 
 @pytest.fixture(scope="function", params=PARAMS, ids=IDS)
-def single_build(request, recipes_fixture):
+def single_build(request, recipes_fixture, config_fixture):
     """
     Builds the "one" recipe.
     """
@@ -142,6 +142,10 @@ def single_build(request, recipes_fixture):
         "within docker" if docker_builder else "locally",
     )
     pkg_paths: list[Path] = [Path(p) for p in recipes_fixture.pkgs["one"]]
+
+    # config_fixture must be loaded here, otherwise utils.RepoData.config is not set
+    # and this test will fail
+    _ = utils.load_config(config_fixture)
 
     recipe_path, global_variants, tool_config, render_config, rattler_output_dir = (
         get_rattler_params(
@@ -1268,9 +1272,12 @@ def test_native_platform_skipping(config_fixture):
     r.write_recipes()
     for recipe_name, platform, result in expections:
         recipe_folder = os.path.dirname(r.recipe_dirs[recipe_name])
+        recipe_path: utils.RecipePath = utils.RecipePath(
+            path=Path(r.recipe_dirs[recipe_name]), build_system="conda"
+        )
         assert (
             build.do_not_consider_for_additional_platform(
-                recipe_folder, r.recipe_dirs[recipe_name], platform
+                recipe_folder, recipe_path, platform
             )
             == result
         )

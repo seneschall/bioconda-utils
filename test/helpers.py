@@ -120,7 +120,9 @@ class Recipes:
 
 
 def get_rattler_params(
-    path: Path, build_system: Literal["conda", "rattler"], docker_builder
+    path: Path,
+    build_system: Literal["conda", "rattler"],
+    docker_builder,
 ) -> tuple[
     utils.RecipePath, rb.VariantConfig, rb.ToolConfiguration, rb.RenderConfig, Path
 ]:
@@ -134,8 +136,9 @@ def get_rattler_params(
     if docker_builder is not None:
         rattler_output_dir: Path = Path(docker_builder.pkg_dir)
     else:
-        platform = utils.RepoData().native_platform()
-        subfolder: str = utils.RepoData.platform2subdir(platform)
+        repodata = utils.RepoData()
+        platform = repodata.native_platform()
+        subfolder: str = repodata.platform2subdir(platform)
         conda_build_config = utils.load_conda_build_config(platform=subfolder)
         rattler_output_dir: Path = Path(conda_build_config.output_folder)
     recipe_path: utils.RecipePath = utils.RecipePath(
