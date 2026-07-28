@@ -2,7 +2,6 @@
 Package Builder
 """
 
-from collections.abc import Iterable
 from pathlib import Path
 import subprocess as sp
 from collections import defaultdict
@@ -97,6 +96,10 @@ def build(
 
     Arguments:
       recipe: Path to recipe
+      tool_config: ToolConfiguration for rattler recipes
+      render_config: RenderConfig for rattler recipes
+      rattler_output_dir: Path to directory rattler recipes will be built to
+      force: Whether to force building packages even if they already exist
       pkg_paths: List of paths to expected packages
       mulled_test: Run tests in minimal docker container
       channels: Channels to include via the ``--channel`` argument to
@@ -251,7 +254,6 @@ def build(
                     for config_file in utils.get_conda_build_config_files():
                         cmd += [config_file.arg, config_file.path]
                     cmd += [str(recipe.path / "meta.yaml")]
-                    # cmd += [str(recipe.path)]
                     with utils.Progress():
                         utils.run(cmd, mask=False, live=live_logs)
             elif recipe.build_system == "rattler":
@@ -275,14 +277,6 @@ def build(
                     result = variant.run_build(
                         tool_config, channels=channels, output_dir=rattler_output_dir
                     )
-
-                    # # check if path was predicted correctly
-                    # for pkg in result.packages:
-                    #     if pkg not in pkg_paths:
-                    #         raise ValueError(
-                    #             f"Path for package {pkg.as_posix()} was not found in pkg_paths."
-                    #         )
-                    # print(f"\n\n\n\n\npkg_paths = {pkg_paths}\n\n\n\n\n")
 
         logger.info(
             "BUILD SUCCESS %s", " ".join(os.path.basename(p) for p in pkg_paths)
@@ -723,7 +717,6 @@ def build_recipes(
                     docker_utils.purgeImage(mulled_upload_target, img)
 
         # remove traces of the build
-        # TODO (rb): how can we purge the rattler-build cache?
         if not keep_old_work:
             conda_build_purge()
             rattler_cache: Path = utils.get_current_rattler_cache_dir_path()

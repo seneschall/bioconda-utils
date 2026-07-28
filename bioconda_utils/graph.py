@@ -7,7 +7,6 @@ from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from fnmatch import fnmatch
 from itertools import chain
-from pathlib import Path
 from token import ISTERMINAL
 from typing import (
     Any,
@@ -63,10 +62,11 @@ def build(
     """
     logger.info("Generating DAG")
     recipes: list[utils.RecipePath] = list(recipes)
-    # TODO (rb): fix load meta fast so it returns the correct type
-    # we have to replace this with a function that returns both
-    # global_variants load here and pass on
-    global_variants: rb.VariantConfig = utils.load_rattler_build_global_variants()
+    # TODO (rb): is it possible to load global variants here and pass them on?
+    # it seems that it doesn't work because utils.parallel_iter wants to pickle them
+    # which fails
+    #
+    # global_variants: rb.VariantConfig = utils.load_rattler_build_global_variants()
 
     meta_rattler_data: list[utils.MetaOrRattler] = list(
         utils.parallel_iter(

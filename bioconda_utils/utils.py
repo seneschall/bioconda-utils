@@ -696,7 +696,7 @@ def load_meta_and_recipe_fast(recipe: RecipePath, env=None) -> MetaOrRattler:
     elif recipe.build_system == "rattler":
         # TODO (rb): is it possible to pass the global variants to the function
         # so we don't have to reload it constantly?
-        # as far as I no we have to reload it, otherwise the parallelisation calls pickle on it
+        # as far as I know we have to reload it, otherwise the parallelisation calls pickle on it
         global_variants: rb.VariantConfig = load_rattler_build_global_variants()
         rattler = render_rattler_recipe_to_dict(recipe.path, global_variants)
         return MetaOrRattler(path=recipe, meta=None, rattler=rattler)

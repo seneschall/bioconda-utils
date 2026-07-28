@@ -8,7 +8,7 @@ Bioconda Utils Command Line Interface
 # changed, may indicate binary incompatibility. Expected 96, got 88"
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Iterable, Literal, NamedTuple
+from typing import Any, Iterable
 import warnings
 from bioconda_utils import bulk
 
@@ -687,7 +687,6 @@ def build(
         cfg, recipe_folder, packages, git_range
     )
 
-    # TODO: implement docker stuff
     if docker:
         if build_script_template is not None:
             build_script_template = open(build_script_template).read()
