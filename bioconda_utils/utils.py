@@ -544,7 +544,7 @@ class MetaOrRattler:
     ) -> None:
         if meta is None and rattler is None:
             raise ValueError(
-                f"Either meta and rattler must be set but both are None for recipe: {path.path.as_posix()}"
+                f"Either meta or rattler must be set but both are None for recipe: {path.path.as_posix()}"
             )
         self.path = path
         self.meta = meta
@@ -563,8 +563,6 @@ class MetaOrRattler:
     def get_dependencies(self, section: Literal["build", "host", "run"]) -> list[str]:
         if self.meta is not None:
             requirements = self.meta.get("requirements")
-            # elif self.rattler is not None:
-            #     requirements = self.rattler[0].get("requirements")
             if not requirements:
                 return []
 
@@ -599,7 +597,7 @@ class MetaOrRattler:
         else:
             # this is just to appease linters. Due to __init__ this will never be called
             raise ValueError(
-                f"Either meta and rattler must be set but both are None for recipe: {self.path.path.as_posix()}"
+                f"Either meta or rattler must be set but both are None for recipe: {self.path.path.as_posix()}"
             )
 
 
