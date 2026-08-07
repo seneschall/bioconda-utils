@@ -531,16 +531,22 @@ def load_all_meta(recipe: Path, config=None, finalize=True):
 
 
 @dataclass(slots=True)
+class RattlerDictList:
+    recipes: list[dict[str, Any]]
+    is_multi: bool
+
+
+@dataclass(slots=True)
 class MetaOrRattler:
     path: RecipePath
     meta: dict[str, Any] | None
-    rattler: list[dict[str, Any]] | None
+    rattler: RattlerDictList | None
 
     def __init__(
         self,
         path: RecipePath,
         meta: dict[str, Any] | None,
-        rattler: list[dict[str, Any]] | None,
+        rattler: RattlerDictList | None,
     ) -> None:
         if meta is None and rattler is None:
             raise ValueError(
@@ -552,9 +558,16 @@ class MetaOrRattler:
 
     def get_package_name(self) -> str:
         if self.meta is not None:
+            # TODO: what actually happens if this is a multi output recipe?
             return self.meta["package"]["name"]
         elif self.rattler is not None:
-            return self.rattler[0]["package"]["name"]
+            # if rattler recipe is a multi-output recipe, return the name of its directory
+            # if it is a single output directory (i.e. the list contains just the variants of the same
+            # recipe), return the name of the package
+            if self.rattler.is_multi:
+                return self.path.path.name
+            else:
+                return self.rattler.recipes[0]["package"]["name"]
         else:
             raise ValueError(
                 f"No meta or rattler-recipe found for: {self.path.path.as_posix()}"
@@ -656,9 +669,9 @@ def render_rattler_recipe(
         raise ValueError("Problem inspecting rattler recipe {0}".format(recipe))
 
 
-def render_rattler_recipe_to_dict(
+def render_rattler_recipe_to_dicts(
     recipe: Path, global_variants: rb.VariantConfig
-) -> list[dict[str, Any]]:
+) -> RattlerDictList:
     """
     Given a package name, find the current recipe.yaml file, render it, and return
     the rendered variants.
@@ -669,6 +682,7 @@ def render_rattler_recipe_to_dict(
         local_variants_path: Path = Path(recipe) / "variants.yaml"
 
         recipe_s0: rb.Stage0Recipe = rb.Stage0Recipe.from_file(recipe_file)
+        is_multi: bool = isinstance(recipe_s0, rb.MultiOutputRecipe)
 
         # merging variants
 
@@ -681,7 +695,9 @@ def render_rattler_recipe_to_dict(
         # rendering recipe
         rendered_variants: list[rb.RenderedVariant] = recipe_s0.render(variants)
 
-        return [r.recipe.to_dict() for r in rendered_variants]
+        return RattlerDictList(
+            recipes=[r.recipe.to_dict() for r in rendered_variants], is_multi=is_multi
+        )
     except Exception:
         raise ValueError("Problem rendering rattler recipe to dict {0}".format(recipe))
 
@@ -701,7 +717,7 @@ def load_meta_and_recipe_fast(recipe: RecipePath, env=None) -> MetaOrRattler:
         # so we don't have to reload it constantly?
         # as far as I know we have to reload it, otherwise the parallelisation calls pickle on it
         global_variants: rb.VariantConfig = load_rattler_build_global_variants()
-        rattler = render_rattler_recipe_to_dict(recipe.path, global_variants)
+        rattler = render_rattler_recipe_to_dicts(recipe.path, global_variants)
         return MetaOrRattler(path=recipe, meta=None, rattler=rattler)
     else:
         raise ValueError(

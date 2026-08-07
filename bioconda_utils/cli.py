@@ -453,7 +453,7 @@ def build(
     """Build and test Bioconda recipes."""
     if test_only:
         # testonly calls `conda-build --test` but expects it to work when pointing
-        # to a recipe with a `meta.yaml`. However, according to `conda-build` docs:
+        # to a recipe with a `meta.yaml`. However, according to the output of `conda-build --test` in version 26.3.0:
         # "RECIPE_PATH argument must be a path to built package file".
         # `rattler-build test` also expects an already built package.
         logger.error("--testonly is deprecated. Rerun without this flag.")
