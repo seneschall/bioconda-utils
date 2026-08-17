@@ -106,6 +106,8 @@ from collections import defaultdict
 from enum import IntEnum
 from typing import Any, NamedTuple, cast
 
+import yaml
+
 from bioconda_utils.skiplist import Skiplist
 import networkx as nx
 
@@ -674,3 +676,37 @@ class Linter:
             logger.debug("Found: %s", message)
 
         return messages
+
+    def lint_one_rattler(
+        self, recipe_name: Path | str, fix: bool = False
+    ) -> list[LintMessage]:
+        """Run the linter on a single rattler recipe. For now, only finds errors.
+
+        Args:
+          recipe_name: Names of recipe to lint
+          fix: Whether checks should attempt to fix detected issues
+
+        Returns:
+          List of collected messages
+        """
+        try:
+            with open(recipe, "r") as f:
+                recipe_dict = yaml.safe_load(f)
+        except:
+            # TODO (rb): find appropriate way to handle this
+            pass
+        schema: dict = utils.load_v1_recipe_schema()
+        print("\n\nloaded\n\n")
+        validator = Draft7Validator(schema)
+        errors = list(validator.iter_errors(recipe_dict))
+        # print(f"is_valid = {valid}")
+        # for err in extract_errors(validator.iter_errors(recipe_dict)):
+        #     print(f"{err.path}: {err.message}")
+        err_msgs: set[str] = set()
+        for err in extract_errors(validator.iter_errors(recipe_dict)):
+            err_msgs.add(err.message)
+            # print(f"{err.path}: {err.message}")
+        for msg in err_msgs:
+            print(msg)
+
+        pass

@@ -1975,6 +1975,13 @@ def get_default_rattler_cache_dir_path() -> Path:
 curr_rattler_cache_dir_path: Path = get_default_rattler_cache_dir_path()
 
 
+def load_v1_recipe_schema() -> dict[Any, Any]:
+    schema_path: Path = Path(__file__).parent / "v1_recipe_schema.json"
+    with open(schema_path, "r") as f:
+        schema = json.load(f)
+    return schema
+
+
 def get_current_rattler_cache_dir_path() -> Path:
     return curr_rattler_cache_dir_path
 

@@ -731,12 +731,13 @@ def lint(
         # TODO (rb): Filtering out all rattler recipes. As linting is not
         # currently implemented for rattler recipes. This has to
         # be improved
-        filtered_recipes: list[Path] = [
-            p for (p, build_sys) in recipes if build_sys == "conda"
-        ]
-
-        if filtered_recipes != recipes:
-            logger.warning("Linting not implemented for rattler recipes yet.")
+        filtered_recipes: list[Path] = []
+        rattler_recipes: list[Path] = []
+        for path, build_sys in recipes:
+            if build_sys == "conda":
+                filtered_recipes.append(path)
+            else:
+                rattler_recipes.append(path)
 
         result = linter.lint(filtered_recipes, fix=try_fix)
         messages = linter.get_messages()
