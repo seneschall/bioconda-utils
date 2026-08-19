@@ -95,6 +95,7 @@ from __future__ import annotations
 
 
 import abc
+from collections.abc import Iterable
 import os
 from pathlib import Path
 import pkgutil
@@ -106,6 +107,8 @@ from collections import defaultdict
 from enum import IntEnum
 from typing import Any, NamedTuple, cast
 
+from jsonschema.exceptions import ValidationError
+from jsonschema.validators import Draft7Validator
 import yaml
 
 from bioconda_utils.skiplist import Skiplist
@@ -140,7 +143,9 @@ class LintMessage(NamedTuple):
     """Message issued by LintChecks"""
 
     #: The recipe this message refers to
-    recipe: _recipe.Recipe
+    # _recipe.Recipe for conda recipes, utils.RecipePath for
+    # rattler recipes
+    recipe: _recipe.Recipe | utils.RecipePath
 
     #: The check issuing the message
     check: type[LintCheck]
@@ -165,6 +170,9 @@ class LintMessage(NamedTuple):
 
     #: Whether the problem can be auto fixed
     canfix: bool = False
+
+    #: Whether the recipe is a rattler recipe
+    is_rattler: bool = False
 
 
 class LintCheckMeta(abc.ABCMeta):
@@ -346,9 +354,9 @@ class LintCheck(metaclass=LintCheckMeta):
     @classmethod
     def make_message(
         cls,
-        recipe: _recipe.Recipe,
+        recipe: _recipe.Recipe | utils.RecipePath,
         section: str | None = None,
-        fname: str | None = None,
+        fname: str | Path | None = None,
         line: int | None = None,
         canfix: bool = False,
     ) -> LintMessage:
@@ -357,15 +365,17 @@ class LintCheck(metaclass=LintCheckMeta):
         Args:
           section: If specified, a lint location within the recipe
                    meta.yaml pointing to this section/subsection will
-                   be added to the message
+                   be added to the message. Not implemented for rattler recipes
           fname: If specified, the message will apply to this file, rather than the
-                 recipe meta.yaml
+                 recipe meta.yaml. Not implemented for rattler recipes
           line: If specified, sets the line number for the message directly
         """
         doc = inspect.getdoc(cls) or ""
         doc = doc.replace("::", ":").replace("``", "`")
         title, _, body = doc.partition("\n")
-        if section:
+        is_rattler: bool = isinstance(recipe, utils.RecipePath)
+
+        if section and not is_rattler:
             try:
                 sl, _sc, el, ec = recipe.get_raw_range(section)
             except KeyError:
@@ -390,6 +400,7 @@ class LintCheck(metaclass=LintCheckMeta):
             start_line=start_line,
             end_line=end_line,
             canfix=canfix,
+            is_rattler=is_rattler,
         )
 
 
@@ -517,7 +528,7 @@ class Linter:
         self.skip = self.load_skips()
         self.exclude = exclude or []
         self.nocatch = nocatch
-        self._messages = []
+        self._messages: list[LintMessage] = []
 
         dag = nx.DiGraph()
         dag.add_nodes_from(str(check) for check in get_checks())
@@ -580,7 +591,9 @@ class Linter:
             skip_dict[recipe].append(func)
         return skip_dict
 
-    def lint(self, recipe_names: list[str] | list[Path], fix: bool = False) -> bool:
+    def lint(
+        self, recipe_names: list[utils.RecipePath] | list[Path], fix: bool = False
+    ) -> bool:
         """Run linter on multiple recipes
 
         Lint messages are collected in the linter. They can be retrieved
@@ -596,13 +609,21 @@ class Linter:
         """
         for recipe_name in utils.tqdm(sorted(recipe_names)):
             self.order_and_load_checks()
+            assert isinstance(recipe_name, utils.RecipePath)  # for linters/IDEs
             try:
-                msgs = self.lint_one(Path(recipe_name), fix=fix)
+                if recipe_name.build_system == "conda":
+                    msgs = self.lint_one(recipe_name.path, fix=fix)
+                else:
+                    msgs = self.lint_one_rattler(recipe_name, fix=fix)
             except Exception:
                 if self.nocatch:
                     raise
                 logger.exception("Unexpected exception in lint")
-                recipe = _recipe.Recipe(Path(recipe_name), self.recipe_folder)
+
+                # if recipe.build_system is "rattler"
+                recipe: utils.RecipePath | _recipe.Recipe = recipe_name
+                if recipe_name.build_system == "conda":
+                    recipe = _recipe.Recipe(recipe_name.path, self.recipe_folder)
                 msgs = [linter_failure.make_message(recipe=recipe)]
             self._messages.extend(msgs)
 
@@ -677,8 +698,19 @@ class Linter:
 
         return messages
 
+    def _extract_errors(
+        self, errors: Iterable[ValidationError]
+    ) -> list[ValidationError]:
+        extracted = []
+        for err in errors:
+            if err.context:
+                extracted.extend(self._extract_errors(err.context))
+            else:
+                extracted.append(err)
+        return extracted
+
     def lint_one_rattler(
-        self, recipe_name: Path | str, fix: bool = False
+        self, recipe: utils.RecipePath, fix: bool = False
     ) -> list[LintMessage]:
         """Run the linter on a single rattler recipe. For now, only finds errors.
 
@@ -689,13 +721,15 @@ class Linter:
         Returns:
           List of collected messages
         """
+        # TODO (rb): handle more than just errors
         try:
-            with open(recipe, "r") as f:
+            with open(recipe.path, "r") as f:
                 recipe_dict = yaml.safe_load(f)
         except:
             # TODO (rb): find appropriate way to handle this
-            pass
-        schema: dict = utils.load_v1_recipe_schema()
+            raise
+        logger.exception("Unexpected exception in lint_one")
+        schema: dict[Any, Any] = utils.load_v1_recipe_schema()
         print("\n\nloaded\n\n")
         validator = Draft7Validator(schema)
         errors = list(validator.iter_errors(recipe_dict))
@@ -703,10 +737,19 @@ class Linter:
         # for err in extract_errors(validator.iter_errors(recipe_dict)):
         #     print(f"{err.path}: {err.message}")
         err_msgs: set[str] = set()
-        for err in extract_errors(validator.iter_errors(recipe_dict)):
+        lint_msgs: list[LintMessage] = []
+        for err in self._extract_errors(validator.iter_errors(recipe_dict)):
             err_msgs.add(err.message)
             # print(f"{err.path}: {err.message}")
         for msg in err_msgs:
-            print(msg)
+            lint_msgs.append(
+                LintMessage(
+                    recipe=recipe,
+                    severity=ERROR,
+                    title=msg,
+                    fname="recipe.yaml",
+                    is_rattler=True,
+                )
+            )
 
-        pass
+        return lint_msgs
