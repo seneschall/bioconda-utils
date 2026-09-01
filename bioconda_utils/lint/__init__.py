@@ -408,9 +408,8 @@ class LintCheck(metaclass=LintCheckMeta):
         doc = inspect.getdoc(cls) or ""
         doc = doc.replace("::", ":").replace("``", "`")
         title, _, body = doc.partition("\n")
-        is_rattler: bool = isinstance(recipe, utils.RecipePath)
 
-        if section and not is_rattler:
+        if section:
             try:
                 sl, _sc, el, ec = recipe.get_raw_range(section)
             except KeyError:
@@ -622,9 +621,7 @@ class Linter:
             skip_dict[recipe].append(func)
         return skip_dict
 
-    def lint(
-        self, recipe_names: list[utils.RecipePath] | list[Path], fix: bool = False
-    ) -> bool:
+    def lint(self, recipe_names: list[utils.RecipePath], fix: bool = False) -> bool:
         """Run linter on multiple recipes
 
         Lint messages are collected in the linter. They can be retrieved
@@ -766,13 +763,22 @@ class Linter:
         if fix:
             logger.warning("Auto fixing not yet implemented for rattler recipes.")
         try:
-            with open(recipe.path, "r") as f:
+            recipe_path: Path = self.recipe_folder / recipe.path / "recipe.yaml"
+            with open(recipe_path, "r") as f:
                 recipe_dict: dict[str, Any] = yaml.safe_load(f)
         except yaml.YAMLError:
             return [
                 RattlerLintMessage(
                     recipe=recipe,
                     lint_or_hint=f"Failed to parse YAML in recipe {recipe.path}",
+                    severity=ERROR,
+                )
+            ]
+        except:
+            return [
+                RattlerLintMessage(
+                    recipe=recipe,
+                    lint_or_hint=f"Error loading recipe file for {recipe.path}",
                     severity=ERROR,
                 )
             ]

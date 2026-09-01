@@ -124,7 +124,7 @@ def build(
     if linter and recipe.build_system == "conda":
         logger.info("Linting recipe %s", recipe.path.as_posix())
         linter.clear_messages()
-        if linter.lint([recipe.path]):
+        if linter.lint([recipe]):
             logger.error(
                 "\n\nThe recipe %s failed linting. See "
                 "https://bioconda.github.io/contributor/linting.html for details:\n\n%s\n",
