@@ -572,7 +572,6 @@ class BiocondaRepoMixin(GitHandlerBase):
 
             if recipe_path.is_relative_to(self.recipes_folder) and recipe_path.exists():
                 tobuild.add(recipe_path)
-            pass
 
         return list(tobuild)
 

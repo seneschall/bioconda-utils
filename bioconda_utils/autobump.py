@@ -289,7 +289,7 @@ class Scanner(AsyncPipeline[Recipe]):
             return False
         except EndProcessingItem as recipe_error:
             self.stats[recipe_error.name] += 1
-            self.status.append((recipe.reldir, recipe_error))
+            self.status.append((recipe.reldir.as_posix(), recipe_error))
             res = True
         return res
 
@@ -379,7 +379,7 @@ class ExcludeSubrecipe(Filter, AutoBumpConfigMixin):
         self.always_exclude = always
 
     async def apply(self, recipe: Recipe) -> None:
-        is_subrecipe = recipe.reldir.strip("/").count("/") > 0
+        is_subrecipe = recipe.reldir.as_posix().strip("/").count("/") > 0
         enabled = self.is_enabled(recipe)
         if is_subrecipe and not (enabled and not self.always_exclude):
             raise self.IsSubRecipe(recipe)
@@ -979,9 +979,7 @@ class GitFilter(Filter):
           ``bump/toolx/1.2.x``.
           Note: this will break if we have ``recipe/x`` and ``recipe/x.d`` in the repo.
         """
-        return (
-            f"{cls.branch_prefix}{recipe.reldir.replace('-', '_').replace('/', '.d/')}"
-        )
+        return f"{cls.branch_prefix}{recipe.reldir.as_posix().replace('-', '_').replace('/', '.d/')}"
 
     # placate pylint by reiterating abstract method
     @abc.abstractmethod
@@ -1061,7 +1059,7 @@ class GitLoadRecipe(GitFilter):
         recipe.set_original()
 
         if remote_branch:
-            if await self.git.branch_is_current(remote_branch, recipe.dir):
+            if await self.git.branch_is_current(remote_branch, str(recipe.dir)):
                 logger.info("Recipe %s: updating from remote %s", recipe, branch_name)
                 recipe_text = await self.pipeline.run_io(
                     self.git.read_from_branch, remote_branch, recipe.path
@@ -1257,7 +1255,9 @@ class CreatePullRequest(GitFilter):
         context = template.new_context(
             {
                 "r": recipe,
-                "recipe_relurl": self.ghub.get_file_relurl(recipe.dir, branch_name),
+                "recipe_relurl": self.ghub.get_file_relurl(
+                    str(recipe.dir), branch_name
+                ),
                 "author": author,
                 "author_is_member": await self.ghub.is_member(author)
                 if author

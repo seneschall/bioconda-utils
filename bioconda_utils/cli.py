@@ -24,7 +24,6 @@ from bioconda_utils.build_failure import (
 )
 import sys
 import os
-from pathlib import Path
 import shlex
 from collections import defaultdict, Counter
 from functools import partial

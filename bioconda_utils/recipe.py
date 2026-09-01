@@ -162,7 +162,10 @@ class Recipe:
         "cdt": lambda x: x,
     }
 
-    def __init__(self, recipe_dir: Path, recipe_folder: Path):
+    def __init__(self, recipe_dir: str | Path, recipe_folder: str | Path):
+        recipe_dir = Path(recipe_dir)
+        recipe_folder = Path(recipe_folder)
+
         if not recipe_dir.is_relative_to(recipe_folder):
             raise RuntimeError(
                 f"'{recipe_dir.as_posix()}' not inside '{recipe_folder.as_posix()}'"
