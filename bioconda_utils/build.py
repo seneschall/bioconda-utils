@@ -456,14 +456,33 @@ def do_not_consider_for_additional_platform(
     Returns:
       Return True if current native platform are not included in recipe's additional platforms (no need to build).
     """
-    recipe_obj = _recipe.Recipe.from_file(recipe_folder, recipe.path)
-    # On linux-aarch64 or osx-arm64 env, only build recipe with matching extra_additional_platforms
-    if platform == "linux-aarch64":
-        if "linux-aarch64" not in recipe_obj.extra_additional_platforms:
-            return True
-    if platform == "osx-arm64":
-        if "osx-arm64" not in recipe_obj.extra_additional_platforms:
-            return True
+    # TODO (rb): I'll solve it like this for now, but in the long run, `Recipe` should be turned into a
+    # Protocol with an implementation for both rattler-build and conda-build
+
+    if recipe.build_system == "conda":
+        recipe_obj = _recipe.Recipe.from_file(recipe_folder, recipe.path)
+        # On linux-aarch64 or osx-arm64 env, only build recipe with matching extra_additional_platforms
+        if platform == "linux-aarch64":
+            if "linux-aarch64" not in recipe_obj.extra_additional_platforms:
+                return True
+        if platform == "osx-arm64":
+            if "osx-arm64" not in recipe_obj.extra_additional_platforms:
+                return True
+    else:  # i.e. recipe.build_system == "rattler"
+        global_variants = utils.load_rattler_build_global_variants()
+        rendered_variants = utils.render_rattler_recipe(recipe.path, global_variants)
+        for variant in rendered_variants:
+            # Is there a more elegant way to access the `extra` section?
+            extra: dict[str, list[str]] = variant.recipe.to_dict().get("extra", {})
+            additional_platforms: list[str] = extra.get("additional_platforms", [])
+            if (
+                platform == "linux-aarch64"
+                and "linux-aarch64" not in additional_platforms
+            ):
+                return True
+            if platform == "osx-arm64" and "osx-arm64" not in additional_platforms:
+                return True
+
     return False
 
 
@@ -592,11 +611,8 @@ def build_recipes(
 
     for recipe, name in recipe_jobs:
         platform = utils.RepoData().native_platform()
-        # TODO (rb): implement this for rattler_build as well
-        if (
-            recipe.build_system != "rattler"
-            and not force
-            and do_not_consider_for_additional_platform(recipe_folder, recipe, platform)
+        if not force and do_not_consider_for_additional_platform(
+            recipe_folder, recipe, platform
         ):
             logger.info(
                 "BUILD SKIP: skipping %s for additional platform %s",
