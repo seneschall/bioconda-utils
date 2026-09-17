@@ -113,6 +113,7 @@ from conda_smithy.lint_recipe import lintify_meta_yaml
 import networkx as nx
 
 from bioconda_utils.skiplist import Skiplist
+from bioconda_utils.utils import BuildSystem
 
 from .. import recipe as _recipe
 from .. import utils
@@ -636,28 +637,29 @@ class Linter:
             self.order_and_load_checks()
             assert isinstance(recipe_name, utils.RecipePath)  # for linters/IDEs
             try:
-                if recipe_name.build_system == "conda":
-                    msgs = self.lint_one(recipe_name.path, fix=fix)
-                else:
-                    msgs = self.lint_one_rattler(recipe_name, fix=fix)
+                match recipe_name.build_system:
+                    case BuildSystem.CONDA:
+                        msgs = self.lint_one(recipe_name.path, fix=fix)
+                    case BuildSystem.RATTLER:
+                        msgs = self.lint_one_rattler(recipe_name, fix=fix)
             except Exception:
                 if self.nocatch:
                     raise
                 logger.exception("Unexpected exception in lint")
 
-                # if recipe.build_system is "rattler"
                 recipe: utils.RecipePath | _recipe.Recipe = recipe_name
-                if recipe_name.build_system == "conda":
-                    recipe = _recipe.Recipe(recipe_name.path, self.recipe_folder)
-                    msgs = [linter_failure.make_conda_message(recipe=recipe)]
-                else:  # i.e. recipe_name.build_system == "rattler"
-                    msgs = [
-                        RattlerLintMessage(
-                            recipe=recipe,
-                            lint_or_hint="Unexpected exception in lint",
-                            severity=ERROR,
-                        )
-                    ]
+                match recipe.build_system:
+                    case BuildSystem.CONDA:
+                        recipe = _recipe.Recipe(recipe_name.path, self.recipe_folder)
+                        msgs = [linter_failure.make_conda_message(recipe=recipe)]
+                    case BuildSystem.RATTLER:
+                        msgs = [
+                            RattlerLintMessage(
+                                recipe=recipe,
+                                lint_or_hint="Unexpected exception in lint",
+                                severity=ERROR,
+                            )
+                        ]
             self._messages.extend(msgs)
 
         return any(message.get_severity() >= ERROR for message in self._messages)
@@ -785,14 +787,21 @@ class Linter:
         lint_msgs: list[LintMessage] = []
 
         for lint in lints:
-            # TODO (rb): Is WARNING the correct error level here?
-            lint_msgs.append(
-                RattlerLintMessage(recipe=recipe, lint_or_hint=lint, severity=WARNING)
-            )
+            # coda smithy returns a lint if:
+            # 'The recipe could do with some maintainers listed in the `extra/recipe-maintainers` section.'
+            # Since this is not required in bioconda recipes, change severity to WARNING in this case.
+            if "maintainers" in lint:
+                lint_msgs.append(
+                    RattlerLintMessage(
+                        recipe=recipe, lint_or_hint=lint, severity=WARNING
+                    )
+                )
+            else:
+                lint_msgs.append(RattlerLintMessage(recipe=recipe, lint_or_hint=lint))
 
         for hint in hints:
             lint_msgs.append(
-                RattlerLintMessage(recipe=recipe, lint_or_hint=hint, severity=INFO)
+                RattlerLintMessage(recipe=recipe, lint_or_hint=hint, severity=WARNING)
             )
 
         return lint_msgs

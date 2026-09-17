@@ -59,6 +59,7 @@ from typing import Literal, Protocol
 from packaging.version import Version
 
 from . import utils
+from .utils import BuildSystem
 from ._types import (
     ALL_PACKAGE_SUBDIRS,
     ContainerPlatform,
@@ -549,7 +550,7 @@ class RecipeBuilder:
         build_args: str,
         rattler_args: str,
         env: dict[str, str],
-        build_system: Literal["conda", "rattler"],
+        build_system: BuildSystem,
         noarch: bool = False,
         live_logs: bool = True,
     ) -> sp.CompletedProcess:
@@ -587,53 +588,56 @@ class RecipeBuilder:
         # Write build script to tempfile
         build_dir = os.path.realpath(tempfile.mkdtemp())
 
-        if build_system == "conda":
-            build_args_list = [build_args]
-            for i, config_file in enumerate(utils.get_conda_build_config_files()):
-                dst_file = self._get_config_path(self.container_staging, i, config_file)
-                build_args_list.extend([config_file.arg, quote(dst_file)])
-            self.conda_build_args = " ".join(build_args_list)
-            self.rattler_build_args = ""
-
-            publish_built_packages = PUBLISH_BUILT_PACKAGES_TEMPLATE.format_map(
-                {
-                    "self": self,
-                    "local_channel_subdirs": LOCAL_CHANNEL_SUBDIR_ARGS,
-                }
-            )
-
-            script = self.build_script_template.format_map(
-                {
-                    "self": self,
-                    "arch": self._output_subdir(noarch),
-                    "local_channel_mkdirs": LOCAL_CHANNEL_MKDIRS,
-                    "publish_built_packages": publish_built_packages,
-                }
-            )
-        else:  # i.e. build_system == "rattler"
-            build_args_list = [rattler_args]
-            global_variants = utils.get_rattler_build_global_variants_paths()
-
-            # TODO (rb) should we also allow `conda_build_config.yaml` as per rattler-build docs?
-            local_variant: Path = Path(recipe_dir) / "variants.yaml"
-            global_variants.append(local_variant)
-
-            for variant in global_variants:
-                if variant.exists():
-                    build_args_list.append(
-                        f"--variant-config {quote(variant.as_posix())}"
+        match build_system:
+            case BuildSystem.CONDA:
+                build_args_list = [build_args]
+                for i, config_file in enumerate(utils.get_conda_build_config_files()):
+                    dst_file = self._get_config_path(
+                        self.container_staging, i, config_file
                     )
+                    build_args_list.extend([config_file.arg, quote(dst_file)])
+                self.conda_build_args = " ".join(build_args_list)
+                self.rattler_build_args = ""
 
-            self.rattler_build_args = " ".join(build_args_list)
-            self.conda_build_args = ""
+                publish_built_packages = PUBLISH_BUILT_PACKAGES_TEMPLATE.format_map(
+                    {
+                        "self": self,
+                        "local_channel_subdirs": LOCAL_CHANNEL_SUBDIR_ARGS,
+                    }
+                )
 
-            # TODO (rb): maybe update this function to accept same args as self.build_script_template
-            script = self.rattler_build_script_template.format_map(
-                {
-                    "self": self,
-                    "arch": self._output_subdir(noarch),
-                }
-            )
+                script = self.build_script_template.format_map(
+                    {
+                        "self": self,
+                        "arch": self._output_subdir(noarch),
+                        "local_channel_mkdirs": LOCAL_CHANNEL_MKDIRS,
+                        "publish_built_packages": publish_built_packages,
+                    }
+                )
+            case BuildSystem.RATTLER:
+                build_args_list = [rattler_args]
+                global_variants = utils.get_rattler_build_global_variants_paths()
+
+                # TODO (rb) should we also allow `conda_build_config.yaml` as per rattler-build docs?
+                local_variant: Path = Path(recipe_dir) / "variants.yaml"
+                global_variants.append(local_variant)
+
+                for variant in global_variants:
+                    if variant.exists():
+                        build_args_list.append(
+                            f"--variant-config {quote(variant.as_posix())}"
+                        )
+
+                self.rattler_build_args = " ".join(build_args_list)
+                self.conda_build_args = ""
+
+                # TODO (rb): maybe update this function to accept same args as self.build_script_template
+                script = self.rattler_build_script_template.format_map(
+                    {
+                        "self": self,
+                        "arch": self._output_subdir(noarch),
+                    }
+                )
 
         with open(os.path.join(build_dir, "build_script.bash"), "w") as fout:
             fout.write(script)

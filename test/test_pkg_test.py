@@ -7,11 +7,14 @@ import pytest
 from helpers import Recipes, ensure_missing, get_rattler_params
 
 from bioconda_utils import build, pkg_test, utils
+from bioconda_utils.utils import BuildSystem
 
 # TODO:
 # need tests for channel order and extra channels (see
 # https://github.com/bioconda/bioconda-utils/issues/31)
 #
+
+CONDA = BuildSystem.CONDA
 
 SKIP_OSX = sys.platform.startswith("darwin")
 
@@ -58,7 +61,7 @@ def build_pkg(request):
             ensure_missing(pkg)
 
         recipe_path, global_variants, tool_config, render_config, rattler_output_dir = (
-            get_rattler_params(Path(recipe_dir), "conda", docker_builder)
+            get_rattler_params(Path(recipe_dir), CONDA, docker_builder)
         )
 
         pkg_paths = [Path(p) for p in built_packages]

@@ -9,6 +9,7 @@ import yaml
 from conda_index.index import update_index
 
 from bioconda_utils import utils
+from bioconda_utils.utils import BuildSystem
 
 
 def ensure_missing(package):
@@ -122,7 +123,7 @@ class Recipes:
 
 def get_rattler_params(
     path: Path,
-    build_system: Literal["conda", "rattler"],
+    build_system: BuildSystem,
     docker_builder,
 ) -> tuple[
     utils.RecipePath, rb.VariantConfig, rb.ToolConfiguration, rb.RenderConfig, Path

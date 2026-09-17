@@ -30,9 +30,12 @@ from bioconda_utils import (
     utils,
 )
 from bioconda_utils._types import Config, ContainerPlatform, PackageSubdir
-from bioconda_utils.utils import validate_config
+from bioconda_utils.utils import validate_config, BuildSystem
 
 logger = logging.getLogger(__name__)
+
+CONDA = BuildSystem.CONDA
+RATTLER = BuildSystem.RATTLER
 
 # TODO: need channel order tests. Could probably do this by adding different
 # file:// channels with different variants of the same package
@@ -155,7 +158,7 @@ def single_build(request, recipes_fixture, config_fixture):
 
     recipe_path, global_variants, tool_config, render_config, rattler_output_dir = (
         get_rattler_params(
-            Path(recipes_fixture.recipe_dirs["one"]), "conda", docker_builder
+            Path(recipes_fixture.recipe_dirs["one"]), CONDA, docker_builder
         )
     )
 
@@ -199,7 +202,7 @@ def multi_build(request, recipes_fixture, config_fixture):
     recipe_folder: Path = Path(recipes_fixture.basedir)
     config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
-        utils.RecipePath(path=p, build_system="conda")
+        utils.RecipePath(path=p, build_system=CONDA)
         for p in recipes_fixture.recipe_dirnames
     ]
     build.build_recipes(
@@ -241,7 +244,7 @@ def multi_build_exclude(request, recipes_fixture, config_fixture):
     recipe_folder: Path = Path(recipes_fixture.basedir)
     config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
-        utils.RecipePath(path=p, build_system="conda")
+        utils.RecipePath(path=p, build_system=CONDA)
         for p in recipes_fixture.recipe_dirnames
     ]
     build.build_recipes(
@@ -290,7 +293,7 @@ def single_upload(request):
     request.addfinalizer(lambda: ensure_missing(pkg))
 
     recipe_path, global_variants, tool_config, render_config, rattler_output_dir = (
-        get_rattler_params(Path(r.recipe_dirs[name]), "conda", None)
+        get_rattler_params(Path(r.recipe_dirs[name]), CONDA, None)
     )
 
     pkg_paths: list[Path] = [Path(p) for p in r.pkgs[name]]
@@ -380,7 +383,7 @@ def test_single_build_pkg_dir(recipes_fixture):
 
     recipe_path, global_variants, tool_config, render_config, rattler_output_dir = (
         get_rattler_params(
-            Path(recipes_fixture.recipe_dirs["one"]), "conda", docker_builder
+            Path(recipes_fixture.recipe_dirs["one"]), CONDA, docker_builder
         )
     )
 
@@ -480,7 +483,7 @@ def test_docker_build_fails(recipes_fixture, config_fixture):
     recipe_folder: Path = Path(recipes_fixture.basedir)
     config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
-        utils.RecipePath(path=p, build_system="conda")
+        utils.RecipePath(path=p, build_system=CONDA)
         for p in recipes_fixture.recipe_dirnames
     ]
     result = build.build_recipes(
@@ -569,7 +572,7 @@ def test_conda_as_dep(config_fixture, mulled_build_and_test):
     recipe_folder: Path = Path(r.basedir)
     config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
-        utils.RecipePath(path=p, build_system="conda") for p in r.recipe_dirnames
+        utils.RecipePath(path=p, build_system=CONDA) for p in r.recipe_dirnames
     ]
     build_result = build.build_recipes(
         recipe_folder,
@@ -859,7 +862,7 @@ def test_rendering_sandboxing():
                 tool_config,
                 render_config,
                 rattler_output_dir,
-            ) = get_rattler_params(Path(r.recipe_dirs["one"]), "conda", None)
+            ) = get_rattler_params(Path(r.recipe_dirs["one"]), CONDA, None)
 
             pkg_paths = [
                 Path(p)
@@ -889,7 +892,7 @@ def test_rendering_sandboxing():
                 tool_config,
                 render_config,
                 rattler_output_dir,
-            ) = get_rattler_params(Path(r.recipe_dirs["one"]), "conda", None)
+            ) = get_rattler_params(Path(r.recipe_dirs["one"]), CONDA, None)
 
             pkg_paths = [
                 Path(p)
@@ -949,7 +952,7 @@ def test_env_sandboxing():
 
     with utils.temp_env({"GITHUB_TOKEN": "token_here"}):
         recipe_path, global_variants, tool_config, render_config, rattler_output_dir = (
-            get_rattler_params(Path(r.recipe_dirs["one"]), "conda", None)
+            get_rattler_params(Path(r.recipe_dirs["one"]), CONDA, None)
         )
 
         pkg_paths = [Path(p) for p in pkg_paths]
@@ -1012,7 +1015,7 @@ def test_skip_dependencies(config_fixture):
     recipe_folder: Path = Path(r.basedir)
     config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
-        utils.RecipePath(path=p, build_system="conda") for p in r.recipe_dirnames
+        utils.RecipePath(path=p, build_system=CONDA) for p in r.recipe_dirnames
     ]
 
     build.build_recipes(
@@ -1041,7 +1044,7 @@ class TestSubdags:
         recipe_folder: Path = Path(recipes_fixture.basedir)
         config: dict[str, Any] = config_fixture
         recipes: list[utils.RecipePath] = [
-            utils.RecipePath(path=p, build_system="conda")
+            utils.RecipePath(path=p, build_system=CONDA)
             for p in recipes_fixture.recipe_dirnames
         ]
 
@@ -1078,7 +1081,7 @@ def test_build_empty_extra_container():
     pkgs = utils.built_package_paths_conda_build(r.recipe_dirs["one"])
 
     recipe_path, global_variants, tool_config, render_config, rattler_output_dir = (
-        get_rattler_params(Path(r.recipe_dirs["one"]), "conda", None)
+        get_rattler_params(Path(r.recipe_dirs["one"]), CONDA, None)
     )
 
     pkg_paths = [Path(p) for p in pkgs]
@@ -1140,7 +1143,7 @@ def test_build_container_no_default_gcc(tmpdir):
     ]
 
     recipe_path, global_variants, tool_config, render_config, rattler_output_dir = (
-        get_rattler_params(Path(r.recipe_dirs["one"]), "conda", docker_builder)
+        get_rattler_params(Path(r.recipe_dirs["one"]), CONDA, docker_builder)
     )
 
     build_result = build.build(
@@ -1185,7 +1188,7 @@ def test_bioconda_pins(caplog, config_fixture):
     recipe_folder: Path = Path(r.basedir)
     config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
-        utils.RecipePath(path=p, build_system="conda") for p in r.recipe_dirnames
+        utils.RecipePath(path=p, build_system=CONDA) for p in r.recipe_dirnames
     ]
 
     build_result = build.build_recipes(
@@ -1586,13 +1589,13 @@ def test_native_platform_skipping(config_fixture):
     for recipe_name, platform, result in expections:
         recipe_folder = os.path.dirname(r.recipe_dirs[recipe_name])
         recipe_path: utils.RecipePath = utils.RecipePath(
-            path=Path(r.recipe_dirs[recipe_name]), build_system="conda"
+            path=Path(r.recipe_dirs[recipe_name]), build_system=CONDA
         )
         assert (
             build.should_skip_platform(
                 Path(recipe_folder),
                 utils.RecipePath(
-                    path=Path(r.recipe_dirs[recipe_name]), build_system="conda"
+                    path=Path(r.recipe_dirs[recipe_name]), build_system=CONDA
                 ),
                 PackageSubdir(platform),
             )
@@ -1602,13 +1605,13 @@ def test_native_platform_skipping(config_fixture):
     # When osx-64 is not in primary_platforms, it requires opt-in
     assert build.should_skip_platform(
         Path(os.path.dirname(r.recipe_dirs["one"])),
-        utils.RecipePath(path=Path(r.recipe_dirs["one"]), build_system="conda"),
+        utils.RecipePath(path=Path(r.recipe_dirs["one"]), build_system=CONDA),
         PackageSubdir.OSX_64,
         primary_platforms=[PackageSubdir.LINUX_64],
     )
     assert not build.should_skip_platform(
         Path(os.path.dirname(r.recipe_dirs["one"])),
-        utils.RecipePath(path=Path(r.recipe_dirs["one"]), build_system="conda"),
+        utils.RecipePath(path=Path(r.recipe_dirs["one"]), build_system=CONDA),
         PackageSubdir.LINUX_64,
         primary_platforms=[PackageSubdir.LINUX_64],
     )
@@ -1630,7 +1633,7 @@ def test_native_platform_skipping(config_fixture):
     assert not build.should_skip_platform(
         Path(os.path.dirname(r_osx_optin.recipe_dirs["osx_pkg"])),
         utils.RecipePath(
-            path=Path(r_osx_optin.recipe_dirs["osx_pkg"]), build_system="conda"
+            path=Path(r_osx_optin.recipe_dirs["osx_pkg"]), build_system=CONDA
         ),
         PackageSubdir.OSX_64,
         primary_platforms=[PackageSubdir.LINUX_64],
@@ -1717,7 +1720,7 @@ def test_cb3_outputs(config_fixture):
     recipe_folder: Path = Path(r.basedir)
     config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
-        utils.RecipePath(path=p, build_system="conda") for p in r.recipe_dirnames
+        utils.RecipePath(path=p, build_system=CONDA) for p in r.recipe_dirnames
     ]
 
     build_result = build.build_recipes(
@@ -1760,7 +1763,7 @@ def test_compiler(config_fixture):
     recipe_folder: Path = Path(r.basedir)
     config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
-        utils.RecipePath(path=p, build_system="conda") for p in r.recipe_dirnames
+        utils.RecipePath(path=p, build_system=CONDA) for p in r.recipe_dirnames
     ]
 
     build_result = build.build_recipes(
@@ -1840,7 +1843,7 @@ def test_nested_recipes(config_fixture):
     recipe_folder: Path = Path(r.basedir)
     config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
-        utils.RecipePath(path=p, build_system="conda") for p in r.recipe_dirnames
+        utils.RecipePath(path=p, build_system=CONDA) for p in r.recipe_dirnames
     ]
 
     build_results = build.build_recipes(
@@ -1897,7 +1900,7 @@ def test_conda_build_sysroot(config_fixture):
     recipe_folder: Path = Path(r.basedir)
     config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
-        utils.RecipePath(path=p, build_system="conda") for p in r.recipe_dirnames
+        utils.RecipePath(path=p, build_system=CONDA) for p in r.recipe_dirnames
     ]
 
     build_result = build.build_recipes(
@@ -1956,7 +1959,7 @@ def test_skip_unsatisfiable_pin_compatible(config_fixture):
     build_result = build.build_recipes(
         recipe_folder,
         config,
-        [utils.RecipePath(path=Path(r.recipe_dirs["one"]), build_system="conda")],
+        [utils.RecipePath(path=Path(r.recipe_dirs["one"]), build_system=CONDA)],
         testonly=False,
         force=False,
         mulled_build_and_test=False,
@@ -2028,7 +2031,7 @@ def test_pkg_test_conda_package_format(
     recipe_folder: Path = Path(r.basedir)
     config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
-        utils.RecipePath(path=p, build_system="conda") for p in r.recipe_dirnames
+        utils.RecipePath(path=p, build_system=CONDA) for p in r.recipe_dirnames
     ]
 
     build_result = build.build_recipes(
@@ -2083,8 +2086,7 @@ def test_rattler_recipe(config_fixture):
     recipe_folder: Path = Path(r.basedir)
     config: dict[str, Any] = config_fixture
     recipes: list[utils.RecipePath] = [
-        utils.RecipePath(path=Path(p), build_system="rattler")
-        for p in r.recipe_dirnames
+        utils.RecipePath(path=Path(p), build_system=RATTLER) for p in r.recipe_dirnames
     ]
 
     build_result = build.build_recipes(

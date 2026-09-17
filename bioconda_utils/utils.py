@@ -7,6 +7,7 @@ This module collects small pieces of code used throughout :py:mod:`bioconda_util
 import asyncio
 import contextlib
 import datetime
+from enum import StrEnum
 import fnmatch
 import glob
 import json
@@ -91,21 +92,26 @@ class _CachedRepoData:
     fetched_at: datetime.datetime
 
 
+class BuildSystem(StrEnum):
+    CONDA = "conda"
+    RATTLER = "rattler"
+
+
+CONDA = BuildSystem.CONDA
+RATTLER = BuildSystem.RATTLER
+
+
 class RecipePath(NamedTuple):
     """
     Named tuple with the fields:
 
     path : Path
 
-    build_system : Literal[
-        "conda", "rattler", "none"
-    ]
+    build_system : BuildSystem
     """
 
     path: Path
-    build_system: Literal[
-        "conda", "rattler", "none"
-    ]  # i.e. conda-build or rattler-build
+    build_system: BuildSystem
 
 
 class TqdmHandler(logging.StreamHandler):
@@ -770,20 +776,17 @@ def load_meta_and_recipe_fast(recipe: RecipePath, env=None) -> MetaOrRattler:
     the contents of the recipe's meta.yaml (for conda build recipes) or a rattler build
     RenderedVariant (for rattler build recipes). The other field will be set to None.
     """
-    if recipe.build_system == "conda":
-        meta, _ = load_meta_fast(recipe.path, env)
-        return MetaOrRattler(path=recipe, meta=meta, rattler=None)
-    elif recipe.build_system == "rattler":
-        # TODO (rb): is it possible to pass the global variants to the function
-        # so we don't have to reload it constantly?
-        # as far as I know we have to reload it, otherwise the parallelisation calls pickle on it
-        global_variants: rb.VariantConfig = load_rattler_build_global_variants()
-        rattler = render_rattler_recipe_to_dicts(recipe.path, global_variants)
-        return MetaOrRattler(path=recipe, meta=None, rattler=rattler)
-    else:
-        raise ValueError(
-            f"Failed to load meta or rattler recipe. Directory empty for: {recipe.path.as_posix()}"
-        )
+    match recipe.build_system:
+        case BuildSystem.CONDA:
+            meta, _ = load_meta_fast(recipe.path, env)
+            return MetaOrRattler(path=recipe, meta=meta, rattler=None)
+        case BuildSystem.RATTLER:
+            # TODO (rb): is it possible to pass the global variants to the function
+            # so we don't have to reload it constantly?
+            # as far as I know we have to reload it, otherwise the parallelisation calls pickle on it
+            global_variants: rb.VariantConfig = load_rattler_build_global_variants()
+            rattler = render_rattler_recipe_to_dicts(recipe.path, global_variants)
+            return MetaOrRattler(path=recipe, meta=None, rattler=rattler)
 
 
 # TODO (rb): Is it correct to assume the native platform is the target platform?
@@ -1153,7 +1156,7 @@ def format_link(uri, fmt: str, prefix: str = "", label: str = ""):
 
 
 def get_recipe_paths(recipes: Iterable[RecipePath]) -> list[Path]:
-    return [recipe for (recipe, _) in recipes]
+    return [recipe.path for recipe in recipes]
 
 
 def get_recipes(
@@ -1198,10 +1201,10 @@ def get_recipes(
                     continue
                 if "meta.yaml" in file_names:
                     meta_yaml_found_or_excluded = True
-                    yield RecipePath(path=dir_path, build_system="conda")
+                    yield RecipePath(path=dir_path, build_system=CONDA)
                 elif "recipe.yaml" in file_names:
                     recipe_yaml_found_or_excluded = True
-                    yield RecipePath(path=dir_path, build_system="rattler")
+                    yield RecipePath(path=dir_path, build_system=RATTLER)
             if (
                 not meta_yaml_found_or_excluded
                 and not recipe_yaml_found_or_excluded
@@ -1212,7 +1215,6 @@ def get_recipes(
                     " If you want to ignore this directory, add it to the blacklist.",
                     new_dir,
                 )
-                yield RecipePath(path=new_dir, build_system="none")
 
 
 class DivergentBuildsError(Exception):
@@ -1447,55 +1449,59 @@ def get_package_paths(
     global_variants: rb.VariantConfig | None = None,
     target_platform: ContainerPlatform | None = None,
 ) -> list[Path]:
-    if recipe.build_system == "rattler":
-        if rattler_output_dir is None or global_variants is None:
-            raise ValueError(
-                f"Both rattler_output_dir and global_variants must be set when calling get_package_paths on a rattler-recipe: {recipe.path.as_posix()}"
+    match recipe.build_system:
+        case BuildSystem.RATTLER:
+            if rattler_output_dir is None or global_variants is None:
+                raise ValueError(
+                    f"Both rattler_output_dir and global_variants must be set when calling get_package_paths on a rattler-recipe: {recipe.path.as_posix()}"
+                )
+            return get_rattler_package_paths(
+                recipe, rattler_output_dir, global_variants
             )
-        return get_rattler_package_paths(recipe, rattler_output_dir, global_variants)
-
-    # otherwise, buildsystem is conda-build:
-    if not force and check_recipe_skippable(
-        recipe, check_channels, target_platform=target_platform
-    ):
-        # NB: If we skip early here, we don't detect possible divergent builds.
-        return []
-    if not finalize:
-        logger.debug("Using non-finalized render for %s (fast resolve)", recipe)
-    _, metas = _load_platform_metas(
-        recipe.path, finalize=finalize, target_platform=target_platform
-    )
-
-    # The recipe likely defined skip: True
-    if not metas:
-        return []
-
-    new_metas, existing_metas, divergent_builds = _filter_existing_packages(
-        metas, check_channels
-    )
-
-    if divergent_builds:
-        raise DivergentBuildsError(*sorted(divergent_builds))
-
-    if force:
-        for meta in existing_metas:
-            logger.info(
-                "FORCE: building %s although it is already in channel(s).",
-                meta.pkg_fn(),
+        case BuildSystem.CONDA:
+            if not force and check_recipe_skippable(
+                recipe.path, check_channels, target_platform=target_platform
+            ):
+                # NB: If we skip early here, we don't detect possible divergent builds.
+                return []
+            if not finalize:
+                logger.debug("Using non-finalized render for %s (fast resolve)", recipe)
+            _, metas = _load_platform_metas(
+                recipe.path, finalize=finalize, target_platform=target_platform
             )
-        build_metas = new_metas + existing_metas
-    else:
-        for meta in existing_metas:
-            logger.info(
-                "FILTER: not building %s because it is in channel(s) and it is not forced.",
-                meta.pkg_fn(),
+
+            # The recipe likely defined skip: True
+            if not metas:
+                return []
+
+            new_metas, existing_metas, divergent_builds = _filter_existing_packages(
+                metas, check_channels
             )
-        # yield all pkgs that do not yet exist
-        build_metas = new_metas
-    package_paths: list[str] = list(
-        chain.from_iterable((api.get_output_file_paths(meta)) for meta in build_metas)
-    )
-    return [Path(p) for p in package_paths]
+
+            if divergent_builds:
+                raise DivergentBuildsError(*sorted(divergent_builds))
+
+            if force:
+                for meta in existing_metas:
+                    logger.info(
+                        "FORCE: building %s although it is already in channel(s).",
+                        meta.pkg_fn(),
+                    )
+                build_metas = new_metas + existing_metas
+            else:
+                for meta in existing_metas:
+                    logger.info(
+                        "FILTER: not building %s because it is in channel(s) and it is not forced.",
+                        meta.pkg_fn(),
+                    )
+                # yield all pkgs that do not yet exist
+                build_metas = new_metas
+            package_paths: list[str] = list(
+                chain.from_iterable(
+                    (api.get_output_file_paths(meta)) for meta in build_metas
+                )
+            )
+            return [Path(p) for p in package_paths]
 
 
 def validate_config(config: dict[str, Any]) -> None:

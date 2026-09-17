@@ -39,6 +39,7 @@ from ._types import (
     native_container_platform,
 )
 from .container_manifests import write_image_record
+from .utils import BuildSystem
 
 from conda_build import api
 
@@ -161,23 +162,25 @@ def build(
     if pkg_paths is None:
         pkg_paths = []
 
-    if linter and recipe.build_system == "conda":
-        logger.info("Linting recipe %s", recipe.path.as_posix())
-        linter.clear_messages()
-        if linter.lint([recipe]):
-            logger.error(
-                "\n\nThe recipe %s failed linting. See "
-                "https://bioconda.github.io/contributor/linting.html for details:\n\n%s\n",
-                recipe.path.as_posix(),
-                linter.get_report(),
-            )
-            return BuildResult(False, None)
-        logger.info("Lint checks passed")
-    elif linter and recipe.build_system == "rattler":
-        logger.warning(
-            "Linting is currently only implemented for conda-build recipes. Skipping rattler-build recipe: %s",
-            recipe.path.as_posix(),
-        )
+    if linter:
+        match recipe.build_system:
+            case BuildSystem.RATTLER:
+                logger.warning(
+                    "Linting is currently only implemented for conda-build recipes. Skipping rattler-build recipe: %s",
+                    recipe.path.as_posix(),
+                )
+            case BuildSystem.CONDA:
+                logger.info("Linting recipe %s", recipe.path.as_posix())
+                linter.clear_messages()
+                if linter.lint([recipe]):
+                    logger.error(
+                        "\n\nThe recipe %s failed linting. See "
+                        "https://bioconda.github.io/contributor/linting.html for details:\n\n%s\n",
+                        recipe.path.as_posix(),
+                        linter.get_report(),
+                    )
+                    return BuildResult(False, None)
+                logger.info("Lint checks passed")
 
     # Copy env allowing only whitelisted vars
     whitelisted_env = {
@@ -195,7 +198,7 @@ def build(
 
     package_name: str = ""
 
-    if recipe.build_system == "conda":
+    if recipe.build_system == BuildSystem.CONDA:
         args = ["--override-channels", "--no-anaconda-upload"]
 
         channels_to_use = ["local"] + [c for c in (channels or []) if c != "local"]
@@ -216,7 +219,7 @@ def build(
         use_base_image = meta.get_value("extra/container", {}).get(
             "extended-base", False
         )
-    elif recipe.build_system == "rattler" and docker_builder is not None:
+    elif recipe.build_system == BuildSystem.RATTLER and docker_builder is not None:
         # We only need the rattler_args when building with docker_builder. When building without
         # docker we use py-rattler-build's bindings directly in the code.
 
@@ -251,9 +254,6 @@ def build(
 
     try:
         if docker_builder is not None:
-            if recipe.build_system == "none":
-                raise ValueError(f"No recipe found at {recipe.path.as_posix()}")
-
             report_resources(f"Starting build for {recipe}", docker_builder is not None)
             docker_builder.build_recipe(
                 recipe_dir=recipe.path.resolve().as_posix(),
@@ -284,39 +284,42 @@ def build(
                     )
                     return BuildResult(False, None)
         else:
-            if recipe.build_system == "conda":
-                conda_build_cmd = [utils.bin_for("conda-build")]
-                # - Temporarily reset os.environ to avoid leaking env vars
-                # - Also pass filtered env to run()
-                # - Point conda-build to meta.yaml, to avoid building subdirs
-                with utils.sandboxed_env(whitelisted_env):
-                    cmd = conda_build_cmd + args
-                    for config_file in utils.get_conda_build_config_files():
-                        cmd += [config_file.arg, config_file.path]
-                    cmd += [str(recipe.path / "meta.yaml")]
-                    with utils.Progress():
-                        utils.run(cmd, live=live_logs)
-            elif recipe.build_system == "rattler":
-                recipe_file: Path = recipe.path / "recipe.yaml"
-                local_variants_path: Path = recipe.path / "variants.yaml"
+            match recipe.build_system:
+                case BuildSystem.CONDA:
+                    conda_build_cmd = [utils.bin_for("conda-build")]
+                    # - Temporarily reset os.environ to avoid leaking env vars
+                    # - Also pass filtered env to run()
+                    # - Point conda-build to meta.yaml, to avoid building subdirs
+                    with utils.sandboxed_env(whitelisted_env):
+                        cmd = conda_build_cmd + args
+                        for config_file in utils.get_conda_build_config_files():
+                            cmd += [config_file.arg, config_file.path]
+                        cmd += [str(recipe.path / "meta.yaml")]
+                        with utils.Progress():
+                            utils.run(cmd, live=live_logs)
+                case BuildSystem.RATTLER:
+                    recipe_file: Path = recipe.path / "recipe.yaml"
+                    local_variants_path: Path = recipe.path / "variants.yaml"
 
-                recipe_s0 = rb.Stage0Recipe.from_file(recipe_file)
+                    recipe_s0 = rb.Stage0Recipe.from_file(recipe_file)
 
-                # merging variants
+                    # merging variants
 
-                variants: rb.VariantConfig = global_variants
+                    variants: rb.VariantConfig = global_variants
 
-                if local_variants_path.exists():
-                    local_variants = rb.VariantConfig.from_file(local_variants_path)
-                    variants = global_variants.merge(local_variants)
+                    if local_variants_path.exists():
+                        local_variants = rb.VariantConfig.from_file(local_variants_path)
+                        variants = global_variants.merge(local_variants)
 
-                # rendering recipe
-                rendered_variants = recipe_s0.render(variants, render_config)
+                    # rendering recipe
+                    rendered_variants = recipe_s0.render(variants, render_config)
 
-                for variant in rendered_variants:
-                    result = variant.run_build(
-                        tool_config, channels=channels, output_dir=rattler_output_dir
-                    )
+                    for variant in rendered_variants:
+                        result = variant.run_build(
+                            tool_config,
+                            channels=channels,
+                            output_dir=rattler_output_dir,
+                        )
 
         logger.info(
             "BUILD SUCCESS %s", " ".join(os.path.basename(p) for p in pkg_paths)
@@ -549,25 +552,28 @@ def should_skip_platform(
     )
     additional_platforms = set(ALL_PACKAGE_SUBDIRS) - primary_set
 
-    if recipe.build_system == "conda":
-        recipe_obj = _recipe.Recipe.from_file(recipe_folder, recipe)
-        return (
-            platform in additional_platforms
-            and platform not in recipe_obj.additional_platforms
-        )
-    else:  # i.e. recipe.build_system == "rattler"
-        if platform not in additional_platforms:
-            return False
-        global_variants = utils.load_rattler_build_global_variants()
-        rendered_variants = utils.render_rattler_recipe(recipe.path, global_variants)
-        for variant in rendered_variants:
-            # Is there a more elegant way to access the `extra` section?
-            extra: dict[str, list[str]] = variant.recipe.to_dict().get("extra", {})
-            recipe_additional_platforms: list[str] = extra.get(
-                "additional_platforms", []
+    match recipe.build_system:
+        case BuildSystem.CONDA:
+            recipe_obj = _recipe.Recipe.from_file(recipe_folder, recipe)
+            return (
+                platform in additional_platforms
+                and platform not in recipe_obj.additional_platforms
             )
-            if platform in recipe_additional_platforms:
+        case BuildSystem.RATTLER:
+            if platform not in additional_platforms:
                 return False
+            global_variants = utils.load_rattler_build_global_variants()
+            rendered_variants = utils.render_rattler_recipe(
+                recipe.path, global_variants
+            )
+            for variant in rendered_variants:
+                # Is there a more elegant way to access the `extra` section?
+                extra: dict[str, list[str]] = variant.recipe.to_dict().get("extra", {})
+                recipe_additional_platforms: list[str] = extra.get(
+                    "additional_platforms", []
+                )
+                if platform in recipe_additional_platforms:
+                    return False
 
     return True
 
@@ -794,7 +800,7 @@ def build_recipes(
             for pkg in nx.algorithms.descendants(subdag, name):
                 skip_dependent[pkg].append(recipe)
             continue
-        if not pkg_paths and recipe.build_system == "conda":
+        if not pkg_paths and recipe.build_system == BuildSystem.CONDA:
             # for now, the package paths for rattler build are determined after the build
             logger.info("Nothing to be done for recipe %s", recipe)
             continue

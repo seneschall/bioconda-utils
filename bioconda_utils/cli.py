@@ -572,7 +572,7 @@ def build(
             utils.run(shlex.split(cmd))
 
     recipes: list[utils.RecipePath] = get_recipes(
-        cfg, recipe_folder_path, package_patterns, parsed_git_range
+        cfg, recipe_folder, package_patterns, parsed_git_range
     )
 
     if docker:
@@ -824,14 +824,6 @@ def lint(
             include_blacklisted=True,
         )
         linter = _lint.Linter(config_data, recipe_folder, exclude)
-
-        # filtered_recipes: list[Path] = []
-        # rattler_recipes: list[Path] = []
-        # for path, build_sys in recipes:
-        #     if build_sys == "conda":
-        #         filtered_recipes.append(path)
-        # else:
-        #     rattler_recipes.append(path)
 
         result = linter.lint(recipes, fix=try_fix)
         messages = linter.get_messages()
