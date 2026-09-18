@@ -110,7 +110,6 @@ def build(
     rattler_output_dir: Path,
     force: bool,
     pkg_paths: list[Path] | None = None,
-    testonly: bool = False,
     mulled_build_and_test: bool = True,
     channels: list[str] | None = None,
     docker_builder: docker_utils.RecipeBuilder | None = None,
@@ -136,7 +135,6 @@ def build(
       rattler_output_dir: Path to directory rattler recipes will be built to
       force: Whether to force building packages even if they already exist
       pkg_paths: List of paths to expected packages
-      testonly: Only run the tests described in the meta.yaml
       mulled_build_and_test: Build the mulled container and run the recipe's
         tests inside it (wraps `mulled-build build-and-test`).
       channels: Channels to include via the ``--channel`` argument to
@@ -583,7 +581,6 @@ def build_recipes(
     config: dict[str, Any],
     recipes: list[utils.RecipePath],
     mulled_build_and_test: bool = True,
-    testonly: bool = False,
     force: bool = False,
     docker_builder: docker_utils.RecipeBuilder | None = None,
     label: str | None = None,
@@ -618,7 +615,6 @@ def build_recipes(
         specified in the config.
       mulled_build_and_test: If true, build the mulled container and run the
         recipe's tests inside it.
-      testonly: If true, only run test.
       force: If true, build the recipe even though it would otherwise be filtered out.
       docker_builder: If specified, use to build all recipes
       label: If specified, use to label uploaded packages on anaconda. Default is "main" label.
@@ -818,7 +814,6 @@ def build_recipes(
             rattler_output_dir=rattler_output_dir,
             force=force,
             pkg_paths=pkg_paths,
-            testonly=testonly,
             mulled_build_and_test=mulled_build_and_test,
             channels=config["channels"],
             docker_builder=docker_builder,
@@ -840,22 +835,21 @@ def build_recipes(
                 skip_dependent[pkg].append(recipe)
         else:
             built_recipes.append(recipe)
-            if not testonly:
-                if anaconda_upload:
-                    for pkg in pkg_paths:
-                        if not upload.anaconda_upload(pkg, label=label):
-                            failed_uploads.append(pkg)
-                if mulled_upload_target:
-                    for img in res.mulled_images or []:
-                        record = upload.mulled_upload(
-                            img.pkg_ref,
-                            mulled_upload_target,
-                            img.target_platform,
-                            use_existing_auth=use_existing_auth,
-                        )
-                        if image_records_dir is not None:
-                            write_image_record(image_records_dir, record)
-                        docker_utils.purgeImage(img.pkg_ref, img.target_platform)
+            if anaconda_upload:
+                for pkg in pkg_paths:
+                    if not upload.anaconda_upload(pkg, label=label):
+                        failed_uploads.append(pkg)
+            if mulled_upload_target:
+                for img in res.mulled_images or []:
+                    record = upload.mulled_upload(
+                        img.pkg_ref,
+                        mulled_upload_target,
+                        img.target_platform,
+                        use_existing_auth=use_existing_auth,
+                    )
+                    if image_records_dir is not None:
+                        write_image_record(image_records_dir, record)
+                    docker_utils.purgeImage(img.pkg_ref, img.target_platform)
 
         # remove traces of the build
         if not keep_old_work:
