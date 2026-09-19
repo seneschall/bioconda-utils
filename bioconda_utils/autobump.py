@@ -64,6 +64,7 @@ from packaging.version import InvalidVersion, Version
 from packaging.version import parse as _pep440_parse
 
 from bioconda_utils.skiplist import Skiplist
+from test.conftest import recipe_dirs
 
 from . import __version__, graph, update_pinnings, utils
 from .aiopipe import (
@@ -78,7 +79,7 @@ from .githubhandler import GitHubHandler
 from .hosters import Hoster
 from .recipe import Recipe
 from .recipe import load_parallel_iter as recipes_load_parallel_iter
-from .utils import RepoData, ensure_list
+from .utils import RATTLER, BuildSystem, RepoData, ensure_list
 
 
 def _parse_or_legacy(s: str) -> tuple[Version | str, bool]:
@@ -123,9 +124,23 @@ class RecipeSource:
         exclude: list[str],
         shuffle: bool = True,
     ) -> None:
+        unfiltered_recipe_dirs: list[utils.RecipePath] = list(
+            utils.get_recipes(recipe_base, self.packages, exclude)
+        )
         self.recipe_base = recipe_base
         self.packages = packages
-        self.recipe_dirs = list(utils.get_recipes(recipe_base, self.packages, exclude))
+        self.recipe_dirs: list[utils.RecipePath] = []
+
+        # TODO (rb): implement autobump for rattler-build
+        for r in unfiltered_recipe_dirs:
+            match r.build_system:
+                case BuildSystem.CONDA:
+                    self.recipe_dirs.append(r)
+                case BuildSystem.RATTLER:
+                    logger.warning(
+                        "Autobump not implemented for rattler build. Skipping recipe: %s",
+                        r.path,
+                    )
         if shuffle:
             random.shuffle(self.recipe_dirs)
         logger.warning("Selected %i packages", len(self.recipe_dirs))

@@ -99,7 +99,6 @@ def rattler_build_purge(rattler_cache: Path, rattler_output_dir: Path) -> None:
     output_cache.mkdir()
     shutil.rmtree(rattler_cache)
     rattler_cache.mkdir()
-    pass
 
 
 def build(
@@ -741,8 +740,9 @@ def build_recipes(
         if docker_builder is not None:
             rattler_output_dir: Path = Path(docker_builder.pkg_dir)
         else:
-            subfolder: str = utils.RepoData.platform2subdir(platform)
-            conda_build_config = utils.load_conda_build_config(platform=subfolder)
+            # TODO (rb): is this the correct subdir here?
+            subdir: PackageSubdir = utils.RepoData.native_subdir()
+            conda_build_config = utils.load_conda_build_config(subdir=subdir)
             rattler_output_dir: Path = Path(conda_build_config.output_folder)
 
         try:

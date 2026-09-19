@@ -9,6 +9,7 @@ import yaml
 from conda_index.index import update_index
 
 from bioconda_utils import utils
+from bioconda_utils._types import PackageSubdir
 from bioconda_utils.utils import BuildSystem
 
 
@@ -139,9 +140,8 @@ def get_rattler_params(
         rattler_output_dir: Path = Path(docker_builder.pkg_dir)
     else:
         repodata = utils.RepoData()
-        platform = repodata.native_platform()
-        subfolder: str = repodata.platform2subdir(platform)
-        conda_build_config = utils.load_conda_build_config(platform=subfolder)
+        subdir: PackageSubdir = repodata.native_subdir()
+        conda_build_config = utils.load_conda_build_config(subdir=subdir)
         rattler_output_dir: Path = Path(conda_build_config.output_folder)
     recipe_path: utils.RecipePath = utils.RecipePath(
         path=path, build_system=build_system
